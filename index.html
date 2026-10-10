@@ -9,14 +9,14 @@
 <style>
 html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#111;font-family:system-ui,sans-serif}
 a-scene{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;display:block!important}
-a-scene canvas{display:block;width:100%!important;height:100%!important}
+a-scene canvas{display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important}
 @supports not (height:100dvh){a-scene{height:100vh!important}}
 #hint{position:fixed;z-index:10;top:12px;left:12px;right:12px;background:#10151ad9;color:white;border-radius:10px;padding:12px;text-align:center;font-size:14px;pointer-events:none}
 </style>
 </head>
 <body>
 <div id="hint">Permití el acceso a la cámara y apuntá al marcador Hiro.</div>
-<a-scene embedded vr-mode-ui="enabled:false" renderer="logarithmicDepthBuffer:true; precision:mediump" arjs="sourceType: webcam; videoTexture: true; debugUIEnabled:false; detectionMode:mono_and_matrix; matrixCodeType:3x3;">
+<a-scene embedded vr-mode-ui="enabled:false" renderer="logarithmicDepthBuffer:true; precision:mediump" arjs="sourceType: webcam; sourceWidth: 720; sourceHeight: 1280; displayWidth: 720; displayHeight: 1280; videoTexture: true; debugUIEnabled:false; detectionMode:mono_and_matrix; matrixCodeType:3x3;">
 <a-marker preset="hiro">
 <a-entity position="0 0.55 0" rotation="0 0 0">
 <a-icosahedron radius="0.45" color="#47e6a1" material="metalness:0.2;roughness:0.35" animation="property:rotation;to:0 360 0;loop:true;dur:9000;easing:linear"></a-icosahedron>
@@ -24,5 +24,36 @@ a-scene canvas{display:block;width:100%!important;height:100%!important}
 </a-marker>
 <a-entity camera></a-entity>
 </a-scene>
+<script>
+/* Keep the entire A-Frame renderer at the visible mobile viewport size. */
+(function () {
+  const scene = document.querySelector('a-scene');
+  let lastWidth = 0, lastHeight = 0;
+  function fitScene() {
+    if (!scene || !scene.renderer) return;
+    const width = Math.round(window.innerWidth);
+    const height = Math.round(window.visualViewport ? window.visualViewport.height : window.innerHeight);
+    if (width === lastWidth && height === lastHeight) return;
+    lastWidth = width; lastHeight = height;
+    scene.style.width = width + 'px';
+    scene.style.height = height + 'px';
+    scene.renderer.setSize(width, height, false);
+    const canvas = scene.canvas;
+    if (canvas) {
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+    }
+  }
+  scene.addEventListener('renderstart', function () {
+    fitScene();
+    setTimeout(fitScene, 500);
+    setTimeout(fitScene, 1500);
+  });
+  window.addEventListener('resize', fitScene);
+  window.addEventListener('orientationchange', function () { setTimeout(fitScene, 350); });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', fitScene);
+  setInterval(fitScene, 1000);
+})();
+</script>
 </body>
 </html>
