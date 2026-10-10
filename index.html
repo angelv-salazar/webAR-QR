@@ -13,7 +13,7 @@ body{margin:0;overflow:hidden;font-family:system-ui,sans-serif}
 </head>
 <body>
 <div id="hint">Permití el acceso a la cámara y apuntá al marcador Hiro.</div>
-<a-scene embedded vr-mode-ui="enabled:false" renderer="logarithmicDepthBuffer:true; precision:mediump" arjs="sourceType: webcam; debugUIEnabled:false; detectionMode:mono_and_matrix; matrixCodeType:3x3;">
+<a-scene embedded vr-mode-ui="enabled:false" renderer="logarithmicDepthBuffer:true; precision:mediump" arjs="sourceType: webcam; videoTexture: true; debugUIEnabled:false; detectionMode:mono_and_matrix; matrixCodeType:3x3;">
 <a-marker preset="hiro">
 <a-entity position="0 0.55 0" rotation="0 0 0">
 <a-icosahedron radius="0.45" color="#47e6a1" material="metalness:0.2;roughness:0.35" animation="property:rotation;to:0 360 0;loop:true;dur:9000;easing:linear"></a-icosahedron>
