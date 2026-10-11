@@ -44,6 +44,10 @@ small,.muted{font-size:12px;line-height:1.5;color:var(--muted)}.divider{border-t
 #status.error{background:#663333;color:#fff1f1}
 #sizeValue{font-variant-numeric:tabular-nums}
 .pill{color:#63796c;background:#f1f7f3;font-size:11px;padding:4px 7px;border-radius:5px}
+.qualityBox{font-size:12px;line-height:1.5;margin:10px 0 0;padding:10px;border:1px solid #d1dbd6;background:#f7faf9;color:#325044;border-radius:8px;white-space:pre-line}
+.qualityBox.invalid{border-color:#e5b0a9;background:#fff2f0;color:#8c2922}
+.qualityBox.warning{border-color:#e7ce8e;background:#fff9e6;color:#74520c}
+.qualityBox.valid{border-color:#acd9bc;background:#eef8f0;color:#285c3b}
 #selectedHint{margin:0 0 8px}
 #fileName{margin-top:5px;overflow-wrap:anywhere}
 footer{max-width:1490px;margin:4px auto 30px;padding:0 19px;font-size:12px;color:#72817b}
@@ -87,7 +91,10 @@ footer{max-width:1490px;margin:4px auto 30px;padding:0 19px;font-size:12px;color
 <select id="entryPattern"><option value="hiro">Hiro (incluido)</option><option value="kanji">Kanji (incluido)</option><option value="custom">Personalizado (.patt)</option></select>
 <div id="customPattern" hidden>
 <label for="pattFile">Archivo .patt del marcador</label><input id="pattFile" type="file" accept=".patt,text/plain">
-<label for="markerImage">Imagen del marcador (PNG, SVG o JPG)</label><input id="markerImage" type="file" accept="image/png,image/svg+xml,image/jpeg">
+<label for="markerImage">Imagen del marcador (PNG, JPG o WebP)</label><input id="markerImage" type="file" accept="image/png,image/jpeg,image/webp">
+<p class="muted">Formato cuadrado 1:1 · mínimo 512 × 512 px · recomendado 1024 × 1024 px · máximo 10 MB.</p>
+<div id="markerQuality" class="qualityBox" aria-live="polite">Cargá una imagen para analizar su calidad.</div>
+<button class="btn secondary" id="revalidateImage" type="button" style="margin-top:7px">Analizar imagen guardada</button>
 <p class="muted">Es necesario un patrón diferente para cada marcador. La personalización y generación automática vendrán en la siguiente etapa.</p>
 </div>
 <label for="modelFile">Modelo 3D (.glb)</label>
@@ -127,6 +134,7 @@ footer{max-width:1490px;margin:4px auto 30px;padding:0 19px;font-size:12px;color
 </main>
 <footer>Estudio WebAR · prototipo de edición. Los modelos cargados no se envían a ningún servidor al guardarlos; permanecen en el almacenamiento local del navegador. Para compartir un recorrido con visitantes deberemos publicarlo posteriormente.</footer>
 <script type="module">
+import {inspectMarkerImage,compareFingerprints,checkPatt} from './marker-validation.js';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
@@ -236,6 +244,37 @@ root.appendChild(button);
 });
 $('count').textContent=session.entries.length+' marcador(es)';
 }
+function setMarkerQuality(message,kind=''){
+ const box=$('markerQuality');
+ box.className='qualityBox'+(kind?' '+kind:'');
+ box.textContent=message;
+}
+function describeMarkerQuality(e){
+ const report=e?.markerValidation;
+ $('revalidateImage').disabled=!e?.markerImageBlob;
+ if(!e?.markerImageBlob){setMarkerQuality('Aún no se cargó una imagen. El análisis comprobará dimensiones, contraste, asimetría y diferenciación entre marcadores.');return;}
+ if(!report){setMarkerQuality('Imagen guardada antes de incorporar el validador. Presioná «Analizar imagen guardada».','warning');return;}
+ const meta=report.info||{};
+ const other=session?.entries.filter(it=>it.id!==e.id&&it.kind==='custom'&&it.markerValidation?.info?.fingerprint)||[];
+ const identical=[];
+ const similar=[];
+ for(const item of other){
+   const dist=compareFingerprints(meta.fingerprint,item.markerValidation.info.fingerprint);
+   if(dist!==null && dist<.055)identical.push(item.name);
+   else if(dist!==null && dist<.12)similar.push(item.name);
+ }
+ const warnings=[...(report.warnings||[])];
+ if(identical.length)warnings.unshift('PATRÓN MUY SIMILAR a '+identical.join(', ')+': elegí una imagen distinta para evitar confusiones.');
+ if(similar.length)warnings.push('Se parece a '+similar.join(', ')+'. Probá patrones más distintos.');
+ const text=[
+    report.ok?'Archivo admitido para generar el patrón (validación preliminar).':'Imagen no válida para esta versión.',
+    meta.width&&meta.height?'Imagen: '+meta.width+' × '+meta.height+' px · '+Math.round((meta.bytes||0)/1024)+' KB':'',
+    ...report.errors||[],
+    ...warnings.map(w=>'⚠ '+w),
+    report.ok?'El reconocimiento real y el .patt todavía deben probarse con el QR y la impresión final.':'Corregí la imagen antes de continuar.'
+ ].filter(Boolean).join('\n');
+ setMarkerQuality(text,!report.ok||identical.length?'invalid':warnings.length?'warning':'valid');
+}
 function populate(){
 const e=selectedEntry();
 $('entryEditor').hidden=!e;
@@ -245,6 +284,7 @@ $('entryName').value=e.name;$('entryPattern').value=e.kind;
 $('customPattern').hidden=e.kind!=='custom';
 $('modelFile').value='';$('pattFile').value='';$('markerImage').value='';
 $('fileName').textContent=e.modelName?('Cargado: '+e.modelName):'Sin archivo GLB. El visor muestra una figura de referencia.';
+describeMarkerQuality(e);
 $('posX').value=e.x;$('posY').value=e.y;$('posZ').value=e.z;$('modelSize').value=e.size;
 $('rotationY').value=e.rotation;$('animation').value=e.animation;
 $('sizeValue').textContent=e.size+' cm';$('rotValue').textContent=e.rotation+'°';
@@ -258,7 +298,7 @@ e.size=Number($('modelSize').value)||12;e.rotation=Number($('rotationY').value)|
 $('customPattern').hidden=e.kind!=='custom';
 $('sizeValue').textContent=e.size+' cm';$('rotValue').textContent=e.rotation+'°';
 $('selectedHint').textContent='Configurando: '+e.name;
-markDirty();drawList();applyTransform();if(e.kind!==markerKindVisible)void setMarkerTexture(e.kind,e.markerImageBlob);
+markDirty();drawList();describeMarkerQuality(e);applyTransform();if(e.kind!==markerKindVisible)void setMarkerTexture(e.kind,e.markerImageBlob);
 }
 function clearModel(){
 if(previewObject){previewObject.parent?.remove(previewObject);previewObject.traverse(node=>{
@@ -333,7 +373,9 @@ if(typeof JSZip==='undefined')throw Error('No se pudo cargar JSZip.');
 const zip=new JSZip(),manifest={format:'estudio-webar-v1',id:session.id,name:session.name,description:session.description,createdAt:session.createdAt,entries:[]};
 for(const [i,e] of session.entries.entries()){
 const id='marcador-'+String(i+1).padStart(2,'0');
-const entry={id:e.id,name:e.name,kind:e.kind,x:e.x,y:e.y,z:e.z,size:e.size,rotation:e.rotation,animation:e.animation,model:'',patt:'',image:''};
+const entry={id:e.id,name:e.name,kind:e.kind,x:e.x,y:e.y,z:e.z,size:e.size,rotation:e.rotation,animation:e.animation,model:'',patt:'',image:'',
+  validation:e.markerValidation?{ok:e.markerValidation.ok,width:e.markerValidation.info?.width,height:e.markerValidation.info?.height,
+  warnings:e.markerValidation.warnings,errors:e.markerValidation.errors}:null};
 if(e.modelBlob){entry.model='modelos/'+id+'.glb';zip.file(entry.model,e.modelBlob);}
 if(e.kind==='custom'&&e.pattText){entry.patt='patrones/'+id+'.patt';zip.file(entry.patt,e.pattText);}
 if(e.kind==='custom'&&e.markerImageBlob){entry.image='patrones/'+id+'-imagen.'+(e.markerImageBlob.type==='image/svg+xml'?'svg':e.markerImageBlob.type==='image/jpeg'?'jpg':'png');zip.file(entry.image,e.markerImageBlob);}
@@ -380,8 +422,65 @@ if(!f.name.toLowerCase().endsWith('.glb')){inform('Elegí un archivo GLB (.glb).
 const entry=selectedEntry();if(!entry)return;
 entry.modelBlob=f;entry.modelName=f.name;markDirty();drawList();populate();await showPreview();
 };
-$('pattFile').onchange=async e=>{const f=e.target.files?.[0],entry=selectedEntry();if(!f||!entry)return;entry.pattText=await f.text();markDirty();inform('Patrón .patt agregado al marcador seleccionado.')};
-$('markerImage').onchange=async e=>{const f=e.target.files?.[0],entry=selectedEntry();if(!f||!entry)return;entry.markerImageBlob=f;markDirty();void showPreview();};
+$('pattFile').onchange=async e=>{
+ const f=e.target.files?.[0],entry=selectedEntry();if(!f||!entry)return;
+ try{
+   if(!f.name.toLowerCase().endsWith('.patt')||f.size>250000)throw Error('Elegí un archivo .patt válido, de menos de 250 KB.');
+   const txt=await f.text();checkPatt(txt);
+   const duplicate=session.entries.find(it=>it.id!==entry.id&&it.kind==='custom'&&it.pattText?.trim()===txt.trim());
+   if(duplicate)throw Error('Este mismo .patt ya está asignado a '+duplicate.name+'. Cada marcador requiere un patrón diferente.');
+   entry.pattText=txt;markDirty();
+   inform('Patrón .patt válido en formato. Debe coincidir exactamente con el diseño que vayas a imprimir.');
+ }catch(error){$('pattFile').value='';inform('Patrón rechazado: '+error.message,true)}
+};
+async function validateMarkerUpload(file,entry,replace=true){
+ setMarkerQuality('Analizando imagen…');
+ const report=await inspectMarkerImage(file);
+ if(!report.ok){
+   if(selectedEntry()?.id===entry.id){
+     setMarkerQuality(['No se admitió esta imagen.',...(report.errors||[])].join('\n'),'invalid');
+     inform('Imagen rechazada. Corregí el formato, tamaño o proporciones antes de seguir.',true);
+   }
+   return false;
+ }
+ const other=session.entries.filter(it=>it.id!==entry.id&&it.kind==='custom'&&it.markerValidation?.info?.fingerprint);
+ for(const row of other){
+   const similarity=compareFingerprints(report.info.fingerprint,row.markerValidation.info.fingerprint);
+   if(similarity!==null&&similarity<.055){
+     if(selectedEntry()?.id===entry.id){
+       setMarkerQuality('Imagen rechazada: su patrón es demasiado similar al de «'+row.name+'». Necesitamos marcadores diferenciables.','invalid');
+       inform('Imagen demasiado similar a otro marcador del recorrido.',true);
+     }
+     return false;
+   }
+ }
+ if(replace){
+   entry.markerImageBlob=file;
+   entry.markerValidation=report;
+   // El .patt anterior ya no corresponde necesariamente a la nueva imagen.
+   entry.pattText='';
+   markDirty();drawList();
+ }else{entry.markerValidation=report;markDirty();}
+ if(selectedEntry()?.id===entry.id){
+   describeMarkerQuality(entry);
+   if(replace)await showPreview();
+   inform('Imagen admitida para preparar un patrón personalizado. Los avisos de contraste y simetría son orientativos; falta generar y comprobar su archivo .patt.');
+ }
+ return true;
+}
+$('markerImage').onchange=async event=>{
+ const file=event.target.files?.[0],entry=selectedEntry();
+ if(!file||!entry)return;
+ try{await validateMarkerUpload(file,entry)}
+ catch(error){setMarkerQuality('Error: '+error.message,'invalid');inform('Error analizando la imagen: '+error.message,true)}
+ finally{$('markerImage').value=''}
+};
+$('revalidateImage').onclick=async()=>{
+ const entry=selectedEntry();
+ if(!entry?.markerImageBlob)return;
+ try{await validateMarkerUpload(entry.markerImageBlob,entry,false)}
+ catch(error){inform('No se pudo analizar la imagen guardada: '+error.message,true)}
+};
 $('saveSession').onclick=async()=>{
 try{session.updatedAt=new Date().toISOString();await sessionSave();clean();await refreshSessions();inform('Recorrido guardado en este navegador. Podés volver a abrirlo desde la lista. Para respaldo usá Exportar ZIP.')}
 catch(error){inform('No se pudo guardar: '+error.message,true)}
