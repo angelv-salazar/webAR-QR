@@ -61,7 +61,8 @@
     const assets='https://raw.githack.com/AR-js-org/AR.js/3.4.8/data/data/';
     let stream=null,context=null,renderer=null,camera=null;
     const activeMarkers=[];
-    let exhibition=null,manifestURL=null,requestedId=null;
+    let exhibition=null,manifestURL=null,requestedId=null,previewMode=false;
+    const transientUrls=[];
     const clock=new THREE.Clock();
     const loadedModels=[];
     let trackingReady=false,frameId=0,lastDetect=0,lastStatus=0,started=false;
@@ -128,6 +129,45 @@
       requestedId=new URLSearchParams(location.search).get('id');
       if(!requestedId||!/^id-[a-z0-9-]{8,60}$/i.test(requestedId))
         throw new Error('Enlace incompleto: falta un identificador válido del recorrido.');
+      if(new URLSearchParams(location.search).has('preview')){
+        previewMode=true;
+        const db=await new Promise((resolve,reject)=>{
+          const request=indexedDB.open('estudio-webar-recorridos',1);
+          request.onsuccess=()=>resolve(request.result);
+          request.onerror=()=>reject(new Error('No se pudo abrir el almacenamiento local del editor.'));
+          request.onupgradeneeded=()=>reject(new Error('Primero guardá el recorrido desde Estudio WebAR.'));
+        });
+        let saved;
+        try{
+          saved=await new Promise((resolve,reject)=>{
+            const request=db.transaction('sessions','readonly').objectStore('sessions').get(requestedId);
+            request.onsuccess=()=>resolve(request.result);
+            request.onerror=()=>reject(request.error);
+          });
+        }finally{db.close()}
+        if(!saved)throw new Error('No se encontró el recorrido guardado en este navegador. La prueba local debe abrirse en el mismo navegador y equipo donde lo editaste.');
+        const entries=saved.entries||[];
+        if(!entries.length||entries.length>20)throw new Error('El recorrido necesita de 1 a 20 marcadores.');
+        const errors=[];
+        entries.forEach((e,i)=>{
+          if(!e.pattText||!e.modelBlob)errors.push('Marcador '+(i+1)+': falta generar el .patt o cargar el GLB.');
+          if(e.kind!=='custom')errors.push('Marcador '+(i+1)+': esta prueba usa patrones personalizados generados con ratio 0.88.');
+          if(Math.abs((Number(e.markerRatio)||0)-.88)>.001)errors.push('Marcador '+(i+1)+': regenerá el marcador para usar el borde 0.88.');
+        });
+        if(errors.length)throw new Error(errors.join(' '));
+        exhibition={format:'estudio-webar-public-v1',id:requestedId,name:saved.name,patternRatio:.88,items:entries.map(e=>{
+          const patt=URL.createObjectURL(new Blob([e.pattText],{type:'text/plain'}));
+          const glb=URL.createObjectURL(e.modelBlob);
+          transientUrls.push(patt,glb);
+          return {id:e.id,title:e.name,marker:patt,model:glb,
+            xCm:e.x,yCm:e.y,zCm:e.z,sizeCm:e.size,
+            rotationDeg:e.rotation,animation:e.animation||'none'};
+        })};
+        manifestURL=new URL('./',location.href);
+        document.title='Prueba local · '+saved.name;
+        instruction.textContent='PRUEBA LOCAL · '+saved.name;
+        return exhibition;
+      }
       manifestURL=new URL('./recorridos/'+encodeURIComponent(requestedId)+'/manifest.json',location.href);
       const response=await fetch(manifestURL,{cache:'no-store'});
       if(!response.ok)throw new Error('Este recorrido todavía no fue publicado (HTTP '+response.status+').');
@@ -297,7 +337,7 @@
     start.disabled=true;start.textContent='Buscando recorrido…';
     loadExhibition().then(config=>{
       start.disabled=false;start.textContent='Iniciar experiencia AR';
-      instruction.textContent=config.name+' · '+config.items.length+' marcador(es)';
+      instruction.textContent=(previewMode?'PRUEBA LOCAL · ':'')+config.name+' · '+config.items.length+' marcador(es)';
     }).catch(error=>{
       start.disabled=true;start.style.display='none';
       instruction.textContent='Recorrido no disponible';
@@ -318,6 +358,7 @@
     });
     start.addEventListener('click',initialize);
 
+    window.addEventListener('pagehide',()=>transientUrls.forEach(url=>URL.revokeObjectURL(url)));
     if(document.documentElement.requestFullscreen){
       full.hidden=false;
       full.addEventListener('click',async()=>{
