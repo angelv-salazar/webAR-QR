@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Recorrido WebAR | Experiencia</title>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#111;color:#fff;font-family:system-ui,sans-serif}
@@ -63,6 +64,7 @@
     const activeMarkers=[];
     let exhibition=null,manifestURL=null,requestedId=null,previewMode=false;
     const transientUrls=[];
+    const unpackedAssets=new Map();
     const clock=new THREE.Clock();
     const loadedModels=[];
     let trackingReady=false,frameId=0,lastDetect=0,lastStatus=0,started=false;
@@ -186,6 +188,33 @@
             throw new Error('Ruta de recurso no permitida: '+relative);
         }
       }
+      if(config.bundle){
+        if(typeof JSZip==='undefined')throw new Error('No se pudo cargar la biblioteca necesaria para abrir los modelos 3D.');
+        const bundleURL=new URL(config.bundle,manifestURL);
+        const folder=new URL('./',manifestURL);
+        if(bundleURL.origin!==location.origin||!bundleURL.pathname.startsWith(folder.pathname))
+          throw new Error('El archivo de recursos está fuera de la carpeta del recorrido.');
+        const bundleResponse=await fetch(bundleURL,{cache:'no-store'});
+        if(!bundleResponse.ok)throw new Error('No se pudieron descargar los GLB y los patrones (HTTP '+bundleResponse.status+').');
+        const b64=(await bundleResponse.text()).replace(/\s/g,'');
+        let binary;
+        try{binary=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));}
+        catch{throw new Error('El archivo de recursos del recorrido no es válido.');}
+        let zip;
+        try{zip=await JSZip.loadAsync(binary);}
+        catch{throw new Error('No se pudo descomprimir el paquete de recursos del recorrido.');}
+        for(const entry of config.items){
+          for(const [relative,type] of [[entry.marker,'text/plain'],[entry.model,'model/gltf-binary']]){
+            if(unpackedAssets.has(relative))continue;
+            const file=zip.file(relative);
+            if(!file)throw new Error('Falta el recurso '+relative+' en el paquete publicado.');
+            const bytes=await file.async('uint8array');
+            const url=URL.createObjectURL(new Blob([bytes],{type}));
+            transientUrls.push(url);
+            unpackedAssets.set(relative,url);
+          }
+        }
+      }
       exhibition=config;
       document.title=(config.name||'Recorrido WebAR')+' — WebAR';
       instruction.textContent=config.name||'Recorrido WebAR';
@@ -199,7 +228,7 @@
       const sun=new THREE.DirectionalLight(0xffffff,2.2);
       sun.position.set(1.5,2,1);scene.add(sun);
       const rows=await Promise.allSettled(activeMarkers.map(async row=>{
-        const gltf=await loader.loadAsync(new URL(row.entry.model,manifestURL).href);
+        const gltf=await loader.loadAsync(unpackedAssets.get(row.entry.model)||new URL(row.entry.model,manifestURL).href);
         const asset=gltf.scene;
         // Centrar cada GLB sobre la base y normalizar tamaño igual que en el editor.
         const bounds=new THREE.Box3().setFromObject(asset);
@@ -314,7 +343,7 @@
         for(const row of activeMarkers){
           new ArMarkerControls(context,row.root,{
             type:'pattern',
-            patternUrl:new URL(row.entry.marker,manifestURL).href,
+            patternUrl:unpackedAssets.get(row.entry.marker)||new URL(row.entry.marker,manifestURL).href,
             changeMatrixMode:'modelViewMatrix'
           });
         }
