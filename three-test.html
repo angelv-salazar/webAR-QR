@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WebAR QR | Prueba Three.js</title>
+<style>
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#101215;color:#fff;font-family:system-ui,-apple-system,sans-serif}
+#camera-layer,#three-layer{position:fixed;inset:0;overflow:hidden;pointer-events:none}
+#camera-layer{z-index:1}#three-layer{z-index:2}
+#camera-layer video{display:block;position:absolute;max-width:none!important;max-height:none!important;object-fit:fill!important;filter:none!important;opacity:1!important}
+#three-layer canvas{display:block;position:absolute;max-width:none!important;max-height:none!important;background:transparent!important}
+#heading{position:fixed;z-index:4;top:12px;left:12px;right:12px;background:rgba(0,0,0,.75);border-radius:9px;padding:10px 12px;font-size:13px;line-height:1.35}
+#status{position:fixed;z-index:5;bottom:12px;left:12px;right:12px;padding:10px;background:rgba(0,0,0,.85);border:1px solid #4cd6a4;border-radius:9px;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+#start{position:fixed;z-index:6;top:50%;left:50%;transform:translate(-50%,-50%);font:600 16px system-ui;padding:15px 22px;background:#4cd6a4;color:#10251c;border:0;border-radius:12px;max-width:90vw}
+#start:disabled{opacity:.55}
+</style>
+<script>
+window.addEventListener('error',e=>{const s=document.getElementById('status');if(s)s.textContent='ERROR: '+e.message+'\n'+(e.filename||'')});
+window.addEventListener('unhandledrejection',e=>{const s=document.getElementById('status');if(s)s.textContent='ERROR: '+String(e.reason?.message||e.reason)});
+</script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.164.0/build/three.module.js",
+    "threex": "https://raw.githack.com/AR-js-org/AR.js/3.4.8/three.js/build/ar-threex.mjs"
+  }
+}
+</script>
+</head>
+<body>
+<div id="camera-layer"></div><div id="three-layer"></div>
+<div id="heading">Prueba alternativa sin A-Frame. La cámara se muestra sin zoom ni estiramiento. Apuntá al marcador Hiro.</div>
+<button id="start" disabled>Cargando librerías…</button>
+<div id="status">Esperando las librerías Three.js y AR.js…</div>
+<script type="module">
+import * as THREE from 'three';
+import {ArToolkitSource,ArToolkitContext,ArMarkerControls} from 'threex';
+
+const status=document.querySelector('#status');
+const start=document.querySelector('#start');
+const cameraLayer=document.querySelector('#camera-layer');
+const threeLayer=document.querySelector('#three-layer');
+let source,context,renderer,marker,mesh;
+let started=false,ready=false,lastError='',layoutValue='',lastStatus=0;
+
+const assetRoot='https://raw.githack.com/AR-js-org/AR.js/3.4.8/data/data/';
+function report(message){lastError=message;status.textContent=message}
+function fit(){
+ if(!source?.domElement||!renderer)return;
+ const video=source.domElement;
+ const vw=video.videoWidth||480,vh=video.videoHeight||640;
+ const sw=window.innerWidth,sh=Math.round(window.visualViewport?.height||window.innerHeight);
+ const factor=Math.min(sw/vw,sh/vh);
+ const width=Math.round(vw*factor),height=Math.round(vh*factor);
+ const x=Math.round((sw-width)/2),y=Math.round((sh-height)/2);
+ const stamp=[width,height,x,y].join(',');
+ if(stamp===layoutValue)return;
+ layoutValue=stamp;
+ Object.assign(video.style,{position:'absolute',left:x+'px',top:y+'px',width:width+'px',height:height+'px',margin:'0px',transform:'none',objectFit:'fill',zIndex:'1'});
+ renderer.setSize(width,height,false);
+ Object.assign(renderer.domElement.style,{position:'absolute',left:x+'px',top:y+'px',width:width+'px',height:height+'px',margin:'0px',transform:'none',zIndex:'2'});
+}
+function showStatus(){
+ const video=source?.domElement;
+ const track=video?.srcObject?.getVideoTracks?.()[0];
+ const dims=video?video.videoWidth+'×'+video.videoHeight:'sin video';
+ status.textContent=(ready?'Motor AR listo':'Iniciando motor AR')+
+ '\nVideo: '+dims+' | estado: '+(track?.readyState||'desconocido')+
+ '\nMarcador Hiro: '+(marker?.visible?'detectado':'no detectado')+
+ (lastError?'\n'+lastError:'');
+}
+start.disabled=false;
+start.textContent='Activar cámara y realidad aumentada';
+start.onclick=async()=>{
+ if(started)return;
+ started=true;start.disabled=true;start.textContent='Iniciando…';
+ try{
+   renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,premultipliedAlpha:false});
+   renderer.setClearColor(0x000000,0);
+   renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
+   threeLayer.appendChild(renderer.domElement);
+   const scene=new THREE.Scene();
+   const camera=new THREE.Camera();scene.add(camera);
+   marker=new THREE.Group();marker.matrixAutoUpdate=false;marker.visible=false;scene.add(marker);
+   mesh=new THREE.Mesh(new THREE.IcosahedronGeometry(.42,1),new THREE.MeshNormalMaterial());
+   mesh.position.y=.55;marker.add(mesh);
+   source=new ArToolkitSource({sourceType:'webcam',sourceWidth:480,sourceHeight:640,displayWidth:480,displayHeight:640});
+   report('Solicitando acceso a la cámara…');
+   source.init(()=>{
+     try{
+       const video=source.domElement;
+       video.setAttribute('playsinline','');video.muted=true;
+       cameraLayer.appendChild(video);
+       video.style.filter='none';
+       fit();video.addEventListener('loadedmetadata',()=>{layoutValue='';fit()});
+       report('Cámara iniciada. Cargando detector Hiro…');
+       context=new ArToolkitContext({cameraParametersUrl:assetRoot+'camera_para.dat',detectionMode:'mono',canvasWidth:640,canvasHeight:480});
+       context.init(()=>{
+         camera.projectionMatrix.copy(context.getProjectionMatrix());
+         const orientation=video.videoWidth>video.videoHeight?'landscape':'portrait';
+         if(context.arController){
+           context.arController.orientation=orientation;
+           if(context.arController.options)context.arController.options.orientation=orientation;
+         }
+         ready=true;fit();showStatus();
+       });
+       new ArMarkerControls(context,marker,{type:'pattern',patternUrl:assetRoot+'patt.hiro',changeMatrixMode:'modelViewMatrix'});
+     }catch(e){report('Error configurando AR: '+e.message);}
+   });
+   start.style.display='none';
+   let lastFrame=0;
+   function loop(t){
+     requestAnimationFrame(loop);
+     if(source?.ready&&context&&ready){
+       try{context.update(source.domElement)}catch(e){lastError='Seguimiento: '+e.message;ready=false;}
+     }
+     if(mesh)mesh.rotation.y+=.012;
+     renderer.render(scene,camera);
+     if(t-lastFrame>900){lastFrame=t;fit();showStatus();}
+   }
+   requestAnimationFrame(loop);
+ }catch(e){started=false;start.disabled=false;start.textContent='Reintentar';report('Error inicializando: '+e.message)}
+};
+window.addEventListener('resize',()=>{layoutValue='';fit()});
+window.visualViewport?.addEventListener('resize',()=>{layoutValue='';fit()});
+</script>
+<script>
+setTimeout(()=>{const b=document.getElementById('start');if(b.disabled){document.getElementById('status').textContent='No se pudieron cargar las librerías o el código no inició. Probá recargar; si persiste, enviame esta pantalla.'}},10000);
+</script>
+</body>
+</html>
