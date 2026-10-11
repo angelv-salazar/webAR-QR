@@ -1,0 +1,24 @@
+{
+  "title": "Colección piloto WebAR — dos marcadores",
+  "version": 1,
+  "items": [
+    {
+      "id": "hiro",
+      "title": "Objeto 01 — Aguacate",
+      "marker": "./data/data/patt.hiro",
+      "markerImage": "./assets/hiro.svg",
+      "model": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Avocado/glTF-Binary/Avocado.glb",
+      "scale": 0.9,
+      "attribution": "Modelo de ejemplo Avocado, Khronos glTF Sample Assets (CC0)"
+    },
+    {
+      "id": "kanji",
+      "title": "Objeto 02 — BoomBox",
+      "marker": "./data/data/patt.kanji",
+      "markerImage": "./assets/kanji-from-pattern.svg",
+      "model": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BoomBox/glTF-Binary/BoomBox.glb",
+      "scale": 0.9,
+      "attribution": "Modelo de ejemplo BoomBox, Khronos glTF Sample Assets (CC0)"
+    }
+  ]
+}
