@@ -39,23 +39,38 @@ export function makeQR(text,size=512){
    }catch(error){reject(error)}
  });
 }
-function paintInner(image,qr){
- const size=1024;
- const canvas=document.createElement('canvas');canvas.width=size;canvas.height=size;
- const ctx=canvas.getContext('2d');
- ctx.fillStyle='#fff';ctx.fillRect(0,0,size,size);
- ctx.drawImage(image,0,0,size,size);
- // QR fijo en la esquina inferior derecha, con margen blanco de seguridad.
- // 33% del patrón interior equivale a ~28.5 mm en un soporte de 150 mm.
- const qrSide=Math.round(size*.33);
- const offset=Math.round(size*.025);
- const x=size-qrSide-offset,y=size-qrSide-offset;
- ctx.fillStyle='#fff';ctx.fillRect(x,y,qrSide,qrSide);
- const quiet=Math.round(qrSide*.08);
- ctx.imageSmoothingEnabled=false;
- ctx.drawImage(qr,x+quiet,y+quiet,qrSide-quiet*2,qrSide-quiet*2);
- ctx.imageSmoothingEnabled=true;
- return canvas;
+function paintInner(image, qr) {
+  const size = 1024;
+  const normalized = normalizeArtwork(image);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, size, size);
+
+  // primero dibujamos la imagen ya normalizada
+  ctx.drawImage(normalized, 0, 0, size, size);
+
+  // QR más pequeño y más pegado a la esquina
+  const qrSide = Math.round(size * 0.26);
+  const offset = Math.round(size * 0.008);   // mucho más cerca del borde
+  const quiet = Math.round(qrSide * 0.055);  // margen blanco mínimo
+
+  const x = size - qrSide - offset;
+  const y = size - qrSide - offset;
+
+  // fondo blanco del QR
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x, y, qrSide, qrSide);
+
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(qr, x + quiet, y + quiet, qrSide - quiet * 2, qrSide - quiet * 2);
+  ctx.imageSmoothingEnabled = true;
+
+  return canvas;
 }
 function buildPrint(inner){
  const edge=MARKER_PRINT_PX;
@@ -179,6 +194,42 @@ function detectContentBox(image) {
     w: maxX - minX,
     h: maxY - minY
   };
+}
+function normalizeArtwork(image) {
+  const size = 1024;
+
+  const analysisBox = detectContentBox(image);
+
+  const scaleX = image.naturalWidth / 512;
+  const scaleY = image.naturalHeight / 512;
+
+  const sx = analysisBox.x * scaleX;
+  const sy = analysisBox.y * scaleY;
+  const sw = analysisBox.w * scaleX;
+  const sh = analysisBox.h * scaleY;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // fondo blanco por defecto
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, size, size);
+
+  // el contenido útil debe ocupar aprox el 84% del área interna
+  const target = size * 0.84;
+  const fit = Math.min(target / sw, target / sh);
+
+  const dw = sw * fit;
+  const dh = sh * fit;
+  const dx = (size - dw) / 2;
+  const dy = (size - dh) / 2;
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh);
+
+  return canvas;
 }
 export async function composeMarker({imageBlob,sessionId}){
  if(!(imageBlob instanceof Blob))throw new Error('Primero cargá una imagen validada.');
