@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Recorrido WebAR | Calibración de cámara</title>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <style>
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#111;color:#fff;font-family:system-ui,sans-serif}
+    #stage{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;background:#111;overflow:hidden}
+    #camera{position:absolute;left:0;top:0;display:block;object-fit:fill;filter:none;opacity:1;z-index:1;max-width:none;max-height:none}
+    #graphics{position:absolute;inset:0;pointer-events:none;z-index:2}
+    #graphics canvas{position:absolute;left:0;top:0;display:block;max-width:none;max-height:none;background:transparent}
+    #top{position:fixed;z-index:5;top:max(10px,env(safe-area-inset-top));left:12px;right:12px;display:flex;gap:8px;align-items:flex-start}
+    #instruction{flex:1;border-radius:9px;background:#0a0a0acf;padding:10px 12px;font-size:13px;line-height:1.3}
+    #full,#framing,#details{border:1px solid #9999;background:#111c;color:#fff;padding:10px;border-radius:9px;font:12px system-ui}
+    #framing,#details{white-space:nowrap}
+    #projectionMode{border:1px solid #47e1a5;background:#0c3e33;color:#eafff5;padding:10px;border-radius:9px;font:600 12px system-ui}
+    #projectionMode[hidden]{display:none!important}
+    #opticsMode{border:1px solid #b1c7ea;background:#203954;color:#f2f6ff;padding:10px;border-radius:9px;font:600 12px system-ui}
+    #opticsMode[hidden]{display:none!important}
+    #top{flex-wrap:wrap}
+    #instruction{min-width:40%;font-size:13px}
+    #diagnostic[hidden]{display:none!important}
+    #start{position:fixed;z-index:8;top:50%;left:50%;transform:translate(-50%,-50%);max-width:90vw;padding:16px 22px;border:0;border-radius:12px;background:#47e1a5;color:#0c2017;font:bold 16px system-ui}
+    #start:disabled{opacity:.6}
+    #diagnostic{position:fixed;z-index:7;bottom:max(12px,env(safe-area-inset-bottom));left:12px;right:12px;border:1px solid #47e1a5;background:#090c0ae0;border-radius:9px;padding:9px 10px;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+  </style>
+  <script type="importmap">
+  {
+    "imports":{
+      "three":"https://cdn.jsdelivr.net/npm/three@0.164.0/build/three.module.js",
+      "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.164.0/examples/jsm/",
+      "threex":"https://raw.githack.com/AR-js-org/AR.js/3.4.8/three.js/build/ar-threex.mjs"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="stage">
+    <video id="camera" autoplay muted playsinline></video>
+    <div id="graphics"></div>
+  </div>
+  <div id="top"><div id="instruction">Recorrido AR · Buscando publicación…</div><button id="full" hidden>Pantalla completa</button><button id="framing" type="button" aria-label="Cambiar encuadre">Ver todo</button><button id="details" type="button" aria-label="Mostrar datos técnicos">Detalles</button><button id="projectionMode" type="button" hidden>Modo de cámara</button><button id="opticsMode" type="button" hidden>Proyección: estándar</button></div>
+  <button id="start" disabled>Cargando…</button>
+  <div id="diagnostic" hidden>Cargando bibliotecas…</div>
+  <script>
+    window.addEventListener('error',function(e){var n=document.getElementById('diagnostic');if(n)n.textContent='Error: '+e.message});
+    window.addEventListener('unhandledrejection',function(e){var n=document.getElementById('diagnostic');if(n)n.textContent='Error: '+String(e.reason?.message||e.reason)});
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import {makeCalibrationURL} from './camera-calibration.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import {ArToolkitContext,ArMarkerControls} from 'threex';
+
+    const stage=document.getElementById('stage');
+    const video=document.getElementById('camera');
+    const graphics=document.getElementById('graphics');
+    const start=document.getElementById('start');
+    const full=document.getElementById('full');
+    const framing=document.getElementById('framing');
+    const details=document.getElementById('details');
+    const instruction=document.getElementById('instruction');
+    const info=document.getElementById('diagnostic');
+    const projectionButton=document.getElementById('projectionMode');
+    const opticsButton=document.getElementById('opticsMode');
+    const assets='https://raw.githack.com/AR-js-org/AR.js/3.4.8/data/data/';
+    let stream=null,context=null,renderer=null,camera=null;
+    const activeMarkers=[];
+    let exhibition=null,manifestURL=null,requestedId=null,previewMode=false;
+    const transientUrls=[];
+    const unpackedAssets=new Map();
+    const clock=new THREE.Clock();
+    const loadedModels=[];
+    let trackingReady=false,frameId=0,lastDetect=0,lastStatus=0,started=false;
+    let generatedCalibration=null;
+    let lastError='',lastLayout='',fillViewport=true,lastVisibleText='';
+    const scene=new THREE.Scene();
+    // Modo opcional de calibración: no altera la experiencia pública normal.
+    const params=new URLSearchParams(location.search);
+    const calibrationMode=params.get('calibrar')==='1';
+    // Esta prueba conserva el recorrido publicado sin cambios; el modo normal
+    // mantiene AR.js tal como estaba. En calibración puede compararse en vivo.
+    let projectionMode='native'; // vídeo original sin rotarlo por segunda vez
+    let equalizeFocal=false; // el detector y el render usarán el mismo camera_para.dat
+    let focalReport=null;
+    function updateProjectionButton(){
+      projectionButton.hidden=true;
+      opticsButton.hidden=true;
+    }
+    function applyCameraFrameOrientation(){
+      if(!context?.arController||!video.videoWidth)return;
+      const controller=context.arController;
+      // El fotograma y el detector ya comparten sus ejes y tamaño.
+      controller.orientation='landscape'; // En ARController significa NO ROTAR.
+      if(controller.options)controller.options.orientation='landscape';
+      camera.projectionMatrix.copy(context.getProjectionMatrix());
+      camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+      const m=camera.projectionMatrix.elements,W=video.videoWidth,H=video.videoHeight;
+      focalReport={
+        originalFx:Math.abs(m[0]*W/2),
+        originalFy:Math.abs(m[5]*H/2),
+        adjustment:1,
+        normalizedFx:Math.abs(m[0]*W/2),
+        normalizedFy:Math.abs(m[5]*H/2)
+      };
+      lastVisibleText='';
+      updateProjectionButton();
+    }
+    function constraints(){
+      // Coincide con "Sin restricciones de tamaño" del laboratorio.
+      // No solicitar width, height, aspectRatio ni frameRate.
+      return {audio:false,video:{facingMode:{ideal:'environment'}}};
+    }
+
+    function sizeBoth(){
+      if(!renderer||!video.videoWidth||!video.videoHeight)return;
+      const W=stage.clientWidth,H=stage.clientHeight;
+      const vw=video.videoWidth,vh=video.videoHeight;
+      // One and the same source-coordinate rectangle for camera AND graphics.
+      const scale=fillViewport?Math.max(W/vw,H/vh):Math.min(W/vw,H/vh);
+      const dw=vw*scale,dh=vh*scale;
+      const x=(W-dw)/2,y=(H-dh)/2;
+      const layout=[W,H,vw,vh,fillViewport].join('|');
+      if(layout===lastLayout)return;
+      lastLayout=layout;
+      for(const el of [video,renderer.domElement]){
+        el.style.position='absolute';
+        el.style.left=x+'px';
+        el.style.top=y+'px';
+        el.style.width=dw+'px';
+        el.style.height=dh+'px';
+        el.style.transform='none';
+        el.style.margin='0';
+      }
+      // The internal WebGL buffer keeps the same aspect ratio as the camera.
+      const maxPixels=1000;
+      const factor=Math.min(1,maxPixels/Math.max(vw,vh));
+      renderer.setSize(Math.round(vw*factor),Math.round(vh*factor),false);
+    }
+
+    function status(){
+      if(!started)return;
+      const track=stream?.getVideoTracks?.()[0];
+      const W=stage.clientWidth,H=stage.clientHeight;
+      const vw=video.videoWidth,vh=video.videoHeight;
+      const srcAspect=vw&&vh?vw/vh:1;
+      const dstAspect=W/H;
+      const visibleFraction=Math.min(srcAspect/dstAspect,dstAspect/srcAspect);
+      const visible=activeMarkers.filter(row=>row.root.visible && row.ready);
+      if(trackingReady){
+        const summary=calibrationMode
+          ? (visible.length?'Cubo de referencia · 15 × 15 × 15 cm':'CALIBRACIÓN · Apuntá a un marcador')
+          : (visible.length?visible.map(row=>row.entry.title).join(' · '):'Apuntá a cualquiera de los marcadores del recorrido');
+        if(summary!==lastVisibleText){lastVisibleText=summary;instruction.textContent=summary;}
+      }
+      const readyCount=activeMarkers.filter(row=>row.ready).length;
+      info.textContent='Video: '+vw+' × '+vh+' | cámara: '+(track?.readyState||'sin pista')+
+       '\nPantalla: '+W+' × '+H+' | encuadre visible: '+(Math.min(1,visibleFraction)*100).toFixed(0)+'%' +
+       '\nAR: '+(trackingReady?'listo':'iniciando')+' | marcadores: '+activeMarkers.length+
+       ' | modelos GLB: '+readyCount+'/'+activeMarkers.length+
+       '\nDetectados: '+(visible.length?visible.map(row=>row.entry.id).join(', '):'ninguno')+
+       (calibrationMode && context?.arController
+         ? '\nModo: '+(projectionMode==='native'?'Nativo (sin girar fotograma)':'Anterior (rotación portrait)')+
+           ' | detector: '+context.arController.canvas.width+'×'+context.arController.canvas.height+
+           ' | orientación: '+context.arController.orientation
+         : '')+
+       (calibrationMode && focalReport
+         ? '\nFocal de AR.js: X '+focalReport.originalFx.toFixed(1)+' px | Y '+focalReport.originalFy.toFixed(1)+' px'+
+           ' | Y/X '+(focalReport.originalFx>0?focalReport.originalFy/focalReport.originalFx:0).toFixed(3)+
+           '\nProyección '+(projectionMode==='native'&&equalizeFocal?'igualada':'sin modificar')+
+           ' | factor óptico Y ×'+focalReport.adjustment.toFixed(3)
+         : '')+
+       (generatedCalibration
+         ? '\nCalibración coherente: '+generatedCalibration.width+'×'+generatedCalibration.height+
+           ' | focal '+generatedCalibration.focal.toFixed(1)+' px (X=Y)'
+         : '')+
+       (lastError?'\n'+lastError:'');
+    }
+
+
+    async function loadExhibition(){
+      if(exhibition)return exhibition;
+      requestedId=new URLSearchParams(location.search).get('id');
+      if(!requestedId||!/^id-[a-z0-9-]{8,60}$/i.test(requestedId))
+        throw new Error('Enlace incompleto: falta un identificador válido del recorrido.');
+      if(new URLSearchParams(location.search).has('preview')){
+        previewMode=true;
+        const db=await new Promise((resolve,reject)=>{
+          const request=indexedDB.open('estudio-webar-recorridos',1);
+          request.onsuccess=()=>resolve(request.result);
+          request.onerror=()=>reject(new Error('No se pudo abrir el almacenamiento local del editor.'));
+          request.onupgradeneeded=()=>reject(new Error('Primero guardá el recorrido desde Estudio WebAR.'));
+        });
+        let saved;
+        try{
+          saved=await new Promise((resolve,reject)=>{
+            const request=db.transaction('sessions','readonly').objectStore('sessions').get(requestedId);
+            request.onsuccess=()=>resolve(request.result);
+            request.onerror=()=>reject(request.error);
+          });
+        }finally{db.close()}
+        if(!saved)throw new Error('No se encontró el recorrido guardado en este navegador. La prueba local debe abrirse en el mismo navegador y equipo donde lo editaste.');
+        const entries=saved.entries||[];
+        if(!entries.length||entries.length>20)throw new Error('El recorrido necesita de 1 a 20 marcadores.');
+        const errors=[];
+        entries.forEach((e,i)=>{
+          if(!e.pattText||!e.modelBlob)errors.push('Marcador '+(i+1)+': falta generar el .patt o cargar el GLB.');
+          if(e.kind!=='custom')errors.push('Marcador '+(i+1)+': esta prueba usa patrones personalizados generados con ratio 0.88.');
+          if(Math.abs((Number(e.markerRatio)||0)-.88)>.001)errors.push('Marcador '+(i+1)+': regenerá el marcador para usar el borde 0.88.');
+        });
+        if(errors.length)throw new Error(errors.join(' '));
+        exhibition={format:'estudio-webar-public-v1',id:requestedId,name:saved.name,patternRatio:.88,items:entries.map(e=>{
+          const patt=URL.createObjectURL(new Blob([e.pattText],{type:'text/plain'}));
+          const glb=URL.createObjectURL(e.modelBlob);
+          transientUrls.push(patt,glb);
+          return {id:e.id,title:e.name,marker:patt,model:glb,
+            xCm:e.x,yCm:e.y,zCm:e.z,sizeCm:e.size,
+            rotationDeg:e.rotation,animation:e.animation||'none'};
+        })};
+        manifestURL=new URL('./',location.href);
+        document.title='Prueba local · '+saved.name;
+        instruction.textContent='PRUEBA LOCAL · '+saved.name;
+        return exhibition;
+      }
+      manifestURL=new URL('./recorridos/'+encodeURIComponent(requestedId)+'/manifest.json',location.href);
+      const response=await fetch(manifestURL,{cache:'no-store'});
+      if(!response.ok)throw new Error('Este recorrido todavía no fue publicado (HTTP '+response.status+').');
+      const config=await response.json();
+      if(config.id!==requestedId || config.format!=='estudio-webar-public-v1')
+        throw new Error('El archivo del recorrido no tiene un formato válido.');
+      if(!Array.isArray(config.items)||config.items.length<1||config.items.length>20)
+        throw new Error('El recorrido debe contener entre 1 y 20 marcadores.');
+      const ratio=Number(config.patternRatio);
+      if(!(ratio>0.5&&ratio<=0.9))throw new Error('Proporción de patrón no compatible.');
+      for(const entry of config.items){
+        if(!entry.id||!entry.marker||!entry.model)throw new Error('Hay un marcador sin modelo o patrón.');
+        for(const relative of [entry.marker,entry.model]){
+          const url=new URL(relative,manifestURL);
+          if(url.origin!==location.origin||!url.pathname.startsWith(new URL('./',manifestURL).pathname))
+            throw new Error('Ruta de recurso no permitida: '+relative);
+        }
+      }
+      if(config.bundle){
+        if(typeof JSZip==='undefined')throw new Error('No se pudo cargar la biblioteca necesaria para abrir los modelos 3D.');
+        const bundleURL=new URL(config.bundle,manifestURL);
+        const folder=new URL('./',manifestURL);
+        if(bundleURL.origin!==location.origin||!bundleURL.pathname.startsWith(folder.pathname))
+          throw new Error('El archivo de recursos está fuera de la carpeta del recorrido.');
+        const bundleResponse=await fetch(bundleURL,{cache:'no-store'});
+        if(!bundleResponse.ok)throw new Error('No se pudieron descargar los GLB y los patrones (HTTP '+bundleResponse.status+').');
+        const b64=(await bundleResponse.text()).replace(/\s/g,'');
+        let binary;
+        try{binary=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));}
+        catch{throw new Error('El archivo de recursos del recorrido no es válido.');}
+        let zip;
+        try{zip=await JSZip.loadAsync(binary);}
+        catch{throw new Error('No se pudo descomprimir el paquete de recursos del recorrido.');}
+        for(const entry of config.items){
+          for(const [relative,type] of [[entry.marker,'text/plain'],[entry.model,'model/gltf-binary']]){
+            if(unpackedAssets.has(relative))continue;
+            const file=zip.file(relative);
+            if(!file)throw new Error('Falta el recurso '+relative+' en el paquete publicado.');
+            const bytes=await file.async('uint8array');
+            const url=URL.createObjectURL(new Blob([bytes],{type}));
+            transientUrls.push(url);
+            unpackedAssets.set(relative,url);
+          }
+        }
+      }
+      exhibition=config;
+      document.title=(config.name||'Recorrido WebAR')+' — WebAR';
+      instruction.textContent=config.name||'Recorrido WebAR';
+      return config;
+    }
+
+    async function loadModels(){
+      const loader=new GLTFLoader();
+      const lights=new THREE.HemisphereLight(0xffffff,0x555555,2.5);
+      scene.add(lights);
+      const sun=new THREE.DirectionalLight(0xffffff,2.2);
+      sun.position.set(1.5,2,1);scene.add(sun);
+      const rows=await Promise.allSettled(activeMarkers.map(async row=>{
+        const gltf=await loader.loadAsync(unpackedAssets.get(row.entry.model)||new URL(row.entry.model,manifestURL).href);
+        const asset=gltf.scene;
+        // Centrar cada GLB sobre la base y normalizar tamaño igual que en el editor.
+        const bounds=new THREE.Box3().setFromObject(asset);
+        const dim=new THREE.Vector3(),center=new THREE.Vector3();
+        bounds.getSize(dim);bounds.getCenter(center);
+        const maxAxis=Math.max(dim.x,dim.y,dim.z);
+        if(!Number.isFinite(maxAxis)||maxAxis<=0)throw new Error('Modelo sin geometría visible');
+        const sizeCm=Math.max(1,Math.min(100,Number(row.entry.sizeCm)||12));
+        const factor=(sizeCm/15)/maxAxis;
+        asset.scale.setScalar(factor);
+        asset.position.set(-center.x*factor,-bounds.min.y*factor,-center.z*factor);
+        const pivot=new THREE.Group();
+        pivot.position.set((Number(row.entry.xCm)||0)/15,(Number(row.entry.yCm)||0)/15,(Number(row.entry.zCm)||0)/15);
+        pivot.rotation.y=THREE.MathUtils.degToRad(Number(row.entry.rotationDeg)||0);
+        pivot.add(asset);row.root.add(pivot);
+        row.object=asset;row.pivot=pivot;row.ready=true;row.animation=row.entry.animation||'none';
+        if(row.animation==='embedded'&&gltf.animations?.length){
+          row.mixer=new THREE.AnimationMixer(asset);
+          for(const clip of gltf.animations)row.mixer.clipAction(clip).play();
+        }
+      }));
+      const failures=rows.map((result,index)=>({result,index})).filter(x=>x.result.status==='rejected');
+      if(failures.length)lastError=failures.map(x=>activeMarkers[x.index].entry.id+': '+x.result.reason.message).join('; ');
+    }
+
+    async function requestCamera(){
+      try{
+        return await navigator.mediaDevices.getUserMedia(constraints());
+      }catch(error){
+        if(error.name==='NotAllowedError'||error.name==='SecurityError')throw error;
+        lastError='No se pudo elegir la cámara trasera automáticamente; probando cámara predeterminada.';
+        return navigator.mediaDevices.getUserMedia({audio:false,video:true});
+      }
+    }
+
+    function runLoop(t){
+      frameId=requestAnimationFrame(runLoop);
+      if(trackingReady && video.readyState>=2 && t-lastDetect>50){
+        lastDetect=t;
+        try{context.update(video)}catch(error){lastError='Seguimiento AR: '+error.message;trackingReady=false;}
+      }
+      const dt=Math.min(clock.getDelta(),.06);
+      for(const row of activeMarkers){
+        if(!row.ready || !row.pivot)continue;
+        if(row.root.visible){
+          const seconds=t*.001,rotation=THREE.MathUtils.degToRad(Number(row.entry.rotationDeg)||0);
+          row.pivot.rotation.y=rotation+(row.animation==='spin'?seconds*.6:0);
+          row.pivot.position.y=(Number(row.entry.yCm)||0)/15+(row.animation==='float'?.045*Math.sin(seconds*1.8):0);
+          row.pivot.scale.setScalar(row.animation==='pulse'?1+.12*Math.sin(seconds*2):1);
+        }
+        if(row.mixer)row.mixer.update(dt);
+      }
+      if(renderer&&camera)renderer.render(scene,camera);
+      if(t-lastStatus>850){lastStatus=t;sizeBoth();status();}
+    }
+
+    async function initialize(){
+      if(started)return;
+      started=true;start.disabled=true;start.textContent='Activando cámara…';
+      info.textContent='Solicitando cámara trasera…';
+      instruction.textContent='Autorizá el acceso a la cámara';
+      try{
+        const collection=await loadExhibition();
+        stream=await requestCamera();
+        video.srcObject=stream;
+        await video.play();
+        if(!video.videoWidth){
+          await new Promise((resolve,reject)=>{
+            const timeout=setTimeout(()=>reject(new Error('No llegó el video')),6000);
+            video.addEventListener('loadedmetadata',()=>{clearTimeout(timeout);resolve()},{once:true});
+          });
+        }
+        // Native preview, not a WebGL video texture: preserves original camera colors.
+        renderer=new THREE.WebGLRenderer({alpha:true,antialias:true,premultipliedAlpha:false});
+        renderer.setClearColor(0x000000,0);
+        renderer.setPixelRatio(1);
+        graphics.appendChild(renderer.domElement);
+        camera=new THREE.Camera();
+        scene.add(camera);
+        for(const entry of collection.items){
+          const root=new THREE.Group();
+          root.matrixAutoUpdate=false;
+          root.visible=false;
+          scene.add(root);
+          activeMarkers.push({entry,root,ready:false,object:null});
+        }
+        sizeBoth();
+        instruction.textContent='Cámara activa · preparando reconocimiento…';
+        info.textContent='Cámara activa. Inicializando marcadores del recorrido…';
+        const vw=video.videoWidth,vh=video.videoHeight;
+        const long=640,short=Math.max(240,Math.round(640*Math.min(vw,vh)/Math.max(vw,vh)));
+        const detectionW=vw>=vh?long:short;
+        const detectionH=vw>=vh?short:long;
+        // Se genera ANTES de iniciar ARToolKit para que tanto el seguimiento
+        // como la proyección usen la MISMA calibración, en vez de corregir
+        // únicamente la cámara virtual después de calcular el marcador.
+        generatedCalibration=makeCalibrationURL(detectionW,detectionH,0.95);
+        context=new ArToolkitContext({
+          cameraParametersUrl:generatedCalibration.url,
+          detectionMode:'mono',
+          patternRatio: Number(collection.patternRatio),
+          canvasWidth:detectionW,
+          canvasHeight:detectionH,
+          maxDetectionRate:25
+        });
+        await new Promise((resolve,reject)=>{
+          const timeout=setTimeout(()=>reject(new Error('El detector tardó demasiado en iniciar')),15000);
+          context.init(()=>{clearTimeout(timeout);resolve()});
+        });
+        // En la prueba nativa, mantener el flujo de video y el detector con
+        // la misma orientación espacial (sin girar el fotograma vertical).
+        applyCameraFrameOrientation();
+        for(const row of activeMarkers){
+          new ArMarkerControls(context,row.root,{
+            type:'pattern',
+            patternUrl:unpackedAssets.get(row.entry.marker)||new URL(row.entry.marker,manifestURL).href,
+            changeMatrixMode:'modelViewMatrix'
+          });
+        }
+        trackingReady=true;
+        start.style.display='none';
+        if(calibrationMode){
+          // Cubo de 1 unidad por lado: equivale a 15 × 15 × 15 cm en este recorrido.
+          // Referencia ortogonal para distinguir deformación de perspectiva y geometría.
+          for(const row of activeMarkers){
+            const wireframe=new THREE.LineSegments(
+              new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)),
+              new THREE.LineBasicMaterial({color:0x39ffcf,depthTest:false})
+            );
+            wireframe.position.y=.5;
+            row.root.add(wireframe);
+            const axes=new THREE.AxesHelper(1);
+            row.root.add(axes);
+            // Perímetro de la base: 15 × 15 cm, coincidente con el marcador impreso.
+            const outline=new THREE.LineLoop(
+              new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(-.5,.01,-.5),
+                new THREE.Vector3(.5,.01,-.5),
+                new THREE.Vector3(.5,.01,.5),
+                new THREE.Vector3(-.5,.01,.5)
+              ]),
+              new THREE.LineBasicMaterial({color:0xffe178,depthTest:false})
+            );
+            row.root.add(outline);
+            row.ready=true;
+          }
+          info.hidden=false;
+          instruction.textContent='CALIBRACIÓN COHERENTE · Cubo 15 × 15 × 15 cm';
+          updateProjectionButton();
+        }else{
+          instruction.textContent='Cargando modelos 3D de la colección…';
+          loadModels().then(()=>{status()}).catch(e=>{lastError=e.message;status()});
+        }
+        status();
+        frameId=requestAnimationFrame(runLoop);
+      }catch(error){
+        lastError=error.name+': '+error.message;
+        info.hidden=false;
+        instruction.textContent='No se pudo iniciar la experiencia';
+        info.textContent='No se pudo iniciar: '+lastError;
+        if(stream)stream.getTracks().forEach(track=>track.stop());
+        stream=null;started=false;
+        start.disabled=false;start.textContent='Reintentar cámara';
+      }
+    }
+    updateProjectionButton();
+    projectionButton.addEventListener('click',()=>{
+      if(!calibrationMode)return;
+      projectionMode=projectionMode==='native'?'original':'native';
+      if(context?.arController)applyCameraFrameOrientation();
+      else updateProjectionButton();
+      lastError='';
+      status();
+    });
+    opticsButton.addEventListener('click',()=>{
+      if(!calibrationMode||projectionMode!=='native')return;
+      equalizeFocal=!equalizeFocal;
+      if(context?.arController)applyCameraFrameOrientation();
+      else updateProjectionButton();
+      status();
+    });
+    start.disabled=true;start.textContent='Buscando recorrido…';
+    loadExhibition().then(config=>{
+      start.disabled=false;start.textContent='Iniciar experiencia AR';
+      instruction.textContent=(previewMode?'PRUEBA LOCAL · ':'')+config.name+' · '+config.items.length+' marcador(es)';
+    }).catch(error=>{
+      start.disabled=true;start.style.display='none';
+      instruction.textContent='Recorrido no disponible';
+      info.hidden=false;
+      info.textContent=error.message+'\nEl QR está reservado, pero todavía falta publicar los archivos del recorrido.';
+    });
+    info.hidden=!new URLSearchParams(location.search).has('debug');
+    details.addEventListener('click',()=>{
+      info.hidden=!info.hidden;
+      details.textContent=info.hidden?'Detalles':'Ocultar datos';
+    });
+    framing.addEventListener('click',()=>{
+      fillViewport=!fillViewport;
+      framing.textContent=fillViewport?'Ver todo':'Llenar pantalla';
+      lastLayout='';
+      sizeBoth();
+      status();
+    });
+    start.addEventListener('click',initialize);
+
+    window.addEventListener('pagehide',()=>{
+      transientUrls.forEach(url=>URL.revokeObjectURL(url));
+      if(generatedCalibration)URL.revokeObjectURL(generatedCalibration.url);
+    });
+    if(document.documentElement.requestFullscreen){
+      full.hidden=false;
+      full.addEventListener('click',async()=>{
+        try{if(!document.fullscreenElement)await document.documentElement.requestFullscreen();else await document.exitFullscreen()}
+        catch(error){lastError='Pantalla completa no disponible en este navegador';status()}
+      });
+    }
+    function resized(){lastLayout='';requestAnimationFrame(sizeBoth)}
+    window.addEventListener('resize',resized);
+    window.visualViewport?.addEventListener('resize',resized);
+    window.addEventListener('orientationchange',()=>setTimeout(resized,350));
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden&&started){lastLayout='';sizeBoth();}});
+    window.addEventListener('pagehide',()=>{if(stream)stream.getTracks().forEach(track=>track.stop());cancelAnimationFrame(frameId)});
+  </script>
+</body>
+</html>
