@@ -51,6 +51,9 @@ small,.muted{font-size:12px;line-height:1.5;color:var(--muted)}.divider{border-t
 .sessionQRInfo{min-width:0;overflow-wrap:anywhere;font-size:12px;line-height:1.5}
 .sessionQRInfo strong{font-size:13px}
 #sessionQRText{font:11px/1.45 ui-monospace,monospace;overflow-wrap:anywhere;margin:4px 0}
+.publishPanel{margin-top:15px;padding:12px;background:#eef7f2;border:1px solid #cfe1d6;border-radius:9px}
+.publishPanel h3{margin:0 0 5px}
+.publishPanel .row{margin-top:9px}
 .markerMaker{margin-top:14px;border:1px solid #cfe0d7;background:#f5faf7;padding:12px;border-radius:10px}
 #finalCanvas{display:block;width:100%;max-width:380px;height:auto;margin:13px auto;border:1px solid #d9e3dd;background:#fff}
 #markerBuildResult[hidden]{display:none!important}
@@ -173,8 +176,17 @@ main{
 <button class="btn" id="saveSession">Guardar recorrido</button>
 </div>
 <div class="row stretch" style="margin-top:8px">
-<button class="btn secondary" id="exportSession">Exportar ZIP</button>
+<button class="btn secondary" id="exportSession">Respaldo ZIP</button>
 <button class="btn warn" id="deleteSession">Eliminar</button>
+</div>
+<div class="publishPanel">
+<h3>Pruebas y publicación</h3>
+<p class="muted">Primero verificá la detección con tu cámara. Cuando funcione, prepará el recorrido completo para publicarlo en GitHub Pages.</p>
+<div class="row stretch">
+<button class="btn secondary" id="testSession">Probar con mi cámara</button>
+<button class="btn" id="preparePublish">Preparar publicación</button>
+</div>
+<p class="muted" style="margin-top:8px">La prueba local solo funciona en el navegador y equipo donde guardaste el recorrido. El ZIP de publicación se puede subir a GitHub para habilitar todos sus QR.</p>
 </div>
 <div class="divider"></div>
 <h2>2. Marcadores del recorrido <span class="pill" id="count">0</span></h2>
@@ -538,6 +550,69 @@ applyTransform();
 $('previewStatus').textContent=(e.modelBlob?'Vista previa: '+e.modelName:'Figura de referencia · cargá un GLB para reemplazarla')+(e.kind==='custom'&&e.finalMarkerBlob?' · marcador final con QR':'');
 }catch(error){$('previewStatus').textContent='No se pudo abrir el GLB: '+error.message;inform(error.message,true)}
 }
+
+function publicationErrors(){
+ const errors=[];
+ if(!session?.entries?.length)errors.push('El recorrido no tiene marcadores.');
+ if(session?.entries?.length>20)errors.push('Máximo 20 marcadores en esta versión.');
+ const patterns=new Set();
+ for(const [i,e] of (session?.entries||[]).entries()){
+   const prefix='Marcador '+(i+1)+' («'+e.name+'»): ';
+   if(e.kind!=='custom')errors.push(prefix+'solo se admiten patrones personalizados generados por el editor.');
+   if(!e.modelBlob)errors.push(prefix+'falta cargar un modelo GLB.');
+   if(!e.pattText||!e.finalMarkerBlob)errors.push(prefix+'falta generar el marcador final.');
+   if(Math.abs(Number(e.markerRatio)-.88)>.001)errors.push(prefix+'el patrón debe regenerarse con el borde compacto de ratio 0.88.');
+   if(e.pattText){
+     const fingerprint=e.pattText.trim().replace(/\s+/g,' ');
+     if(patterns.has(fingerprint))errors.push(prefix+'patrón espacial duplicado.');
+     patterns.add(fingerprint);
+   }
+ }
+ return errors;
+}
+async function preparePublication(){
+ if(typeof JSZip==='undefined')throw Error('No se cargó el generador ZIP.');
+ if(dirty)throw Error('Guardá los cambios del recorrido antes de preparar su publicación.');
+ const errors=publicationErrors();
+ if(errors.length)throw Error(errors.join('\n'));
+ const zip=new JSZip();
+ const root='recorridos/'+session.id+'/';
+ const items=[];
+ for(const [i,e] of session.entries.entries()){
+   const stem='marcador-'+String(i+1).padStart(2,'0');
+   const pattern='patrones/'+stem+'.patt';
+   const model='modelos/'+stem+'.glb';
+   const print='imprimir/'+stem+'-15cm.png';
+   zip.file(root+pattern,e.pattText);
+   zip.file(root+model,e.modelBlob);
+   zip.file(root+print,e.finalMarkerBlob);
+   items.push({
+     id:e.id,title:e.name,marker:pattern,model,print,
+     xCm:e.x,yCm:e.y,zCm:e.z,sizeCm:e.size,
+     rotationDeg:e.rotation,animation:e.animation||'none'
+   });
+ }
+ const manifest={
+   format:'estudio-webar-public-v1',id:session.id,name:session.name,
+   description:session.description||'',patternRatio:.88,physicalSizeCm:15,
+   items
+ };
+ zip.file(root+'manifest.json',JSON.stringify(manifest,null,2));
+ zip.file('INSTRUCCIONES-PUBLICAR.txt',
+  'PAQUETE DE PUBLICACION WEBAR\n\n'+
+  '1. Este ZIP debe descomprimirse conservando la carpeta recorridos/ y sus subcarpetas.\n'+
+  '2. Subí los archivos al repositorio angelv-salazar/webAR-QR, rama main, respetando esas rutas.\n'+
+  '3. Esperá la actualización de GitHub Pages y comprobá la URL:\n   '+routeURL(session.id)+'\n'+
+  '4. Escaneá cualquier QR del recorrido y probá todos los marcadores impresos.\n\n'+
+  'Importante: los QR funcionan únicamente después de publicar todos los archivos.\n'+
+  'Para que ChatGPT cargue este recorrido al repositorio, también podés adjuntar este ZIP a la conversación.\n');
+ const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
+ const href=URL.createObjectURL(blob);
+ const a=document.createElement('a');a.href=href;
+ a.download='publicar-'+session.id+'.zip';a.click();
+ setTimeout(()=>URL.revokeObjectURL(href),6000);
+ return {count:items.length,url:routeURL(session.id)};
+}
 async function downloadExport(){
 if(!session)return;
 if(typeof JSZip==='undefined')throw Error('No se pudo cargar JSZip.');
@@ -772,6 +847,28 @@ if(dirty&&!confirm('Hay cambios sin guardar. ¿Cambiar de recorrido?')){e.target
 if(!id){setSession(newSession());return;}
 const saved=await txn('readonly',s=>s.get(id));
 if(saved)setSession(saved);
+};
+$('testSession').onclick=async()=>{
+ try{
+   if(dirty)throw Error('Guardá el recorrido antes de probarlo con la cámara.');
+   const errors=publicationErrors();
+   if(errors.length)throw Error(errors.join('\n'));
+   const url=new URL(routeURL(session.id));
+   url.searchParams.set('preview','1');
+   window.open(url.href,'_blank','noopener');
+   inform('Prueba abierta en otra pestaña. Autorizá la cámara y apuntá a los marcadores impresos. El modo local usa los archivos guardados en este navegador.');
+ }catch(error){inform('No se pudo iniciar la prueba: '+error.message,true);}
+};
+$('preparePublish').onclick=async()=>{
+ const button=$('preparePublish');
+ button.disabled=true;button.textContent='Preparando archivos…';
+ try{
+   inform('Empaquetando GLB, .patt, imágenes imprimibles y manifiesto del recorrido…');
+   const result=await preparePublication();
+   inform('ZIP de publicación listo para '+result.count+' marcador(es).\nURL definitiva: '+result.url+
+   '\nTodavía NO está publicado. Adjuntá este ZIP en nuestra conversación para que pueda subirlo a tu GitHub y activar el recorrido.');
+ }catch(error){inform('No se pudo preparar la publicación:\n'+error.message,true);}
+ finally{button.disabled=false;button.textContent='Preparar publicación';}
 };
 $('exportSession').onclick=async()=>{
 try{inform('Preparando ZIP de respaldo…');await downloadExport();inform('ZIP generado. Incluye los GLB cargados y la configuración del recorrido.')}
