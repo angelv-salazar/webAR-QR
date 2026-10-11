@@ -541,6 +541,100 @@ $('revalidateImage').onclick=async()=>{
  try{await validateMarkerUpload(entry.markerImageBlob,entry,false)}
  catch(error){inform('No se pudo analizar la imagen guardada: '+error.message,true)}
 };
+
+const printer=$('printImage');
+let printURL=null,displayToken=0;
+async function showMarkerResult(entry){
+ const token=++displayToken;
+ const wrap=$('markerBuildResult');
+ const note=$('markerBuildInfo');
+ wrap.hidden=true;
+ $('buildMarker').disabled=!entry||entry.kind!=='custom'||!entry.markerImageBlob||entry.markerValidation?.ok!==true;
+ if(!entry||entry.kind!=='custom'){
+   note.textContent='Seleccioná «Personalizado (.patt)» y cargá tu imagen para generar un marcador con QR.';
+   return;
+ }
+ if(!entry.markerImageBlob){
+   note.textContent='Cargá una imagen cuadrada. Si supera la validación podrás generar el marcador con un clic.';
+   return;
+ }
+ if(entry.markerValidation?.ok!==true){
+   note.textContent='La imagen no está validada. Revisá el informe o presioná «Analizar imagen guardada».';
+   return;
+ }
+ if(!entry.finalMarkerBlob){
+   note.textContent='Imagen validada. Presioná «Generar marcador final» para incorporar el QR y obtener el .patt.';
+   return;
+ }
+ note.textContent='Diseño generado: 15 × 15 cm. QR fijo abajo a la derecha. El enlace está reservado, pendiente de publicación.';
+ try{
+   const bitmap=await createImageBitmap(entry.finalMarkerBlob);
+   if(token!==displayToken){bitmap.close();return;}
+   const canvas=$('finalCanvas'),ctx=canvas.getContext('2d');
+   ctx.clearRect(0,0,canvas.width,canvas.height);
+   ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
+   bitmap.close();
+   wrap.hidden=false;
+ }catch(err){note.textContent='No se pudo mostrar el marcador: '+err.message;}
+}
+$('buildMarker').onclick=async()=>{
+ const entry=selectedEntry(),sessionId=session?.id;
+ if(!entry||entry.kind!=='custom'||!entry.markerImageBlob||entry.markerValidation?.ok!==true){
+   inform('Primero cargá y validá una imagen personalizada para este marcador.',true);return;
+ }
+ const button=$('buildMarker');button.disabled=true;
+ $('markerBuildInfo').textContent='Preparando QR, composición 15 × 15 cm y archivo de reconocimiento .patt…';
+ try{
+   const result=await composeMarker({imageBlob:entry.markerImageBlob,sessionId});
+   if(session?.id!==sessionId||!session.entries.includes(entry)){
+      inform('Cambiaste de recorrido durante la generación. No se aplicaron los archivos.');return;
+   }
+   entry.pattText=result.pattern;
+   entry.markerRatio=result.ratio;
+   entry.finalMarkerBlob=result.finalBlob;
+   entry.finalForURL=result.url;
+   markDirty();drawList();
+   if(selectedEntry()?.id===entry.id)await showMarkerResult(entry);
+   inform('Marcador generado: imagen de impresión y patrón .patt. Guardá el recorrido para conservar ambos archivos. El QR todavía no abre una experiencia publicada.');
+ }catch(error){
+   $('markerBuildInfo').textContent='No se pudo generar el marcador: '+error.message;
+   inform('Generación fallida: '+error.message,true);
+ }finally{
+   const now=selectedEntry();
+   button.disabled=!now||now.kind!=='custom'||!now.markerImageBlob||now.markerValidation?.ok!==true;
+ }
+};
+$('downloadMarkerFiles').onclick=async()=>{
+ const entry=selectedEntry();
+ if(!entry?.finalMarkerBlob||!entry?.pattText){
+   inform('Primero generá el marcador final.',true);return;
+ }
+ try{
+   if(!window.JSZip)throw Error('No se pudo cargar el generador ZIP.');
+   const zip=new JSZip(),base=(entry.name||'marcador').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'-').slice(0,60)||'marcador';
+   zip.file(base+'-15x15cm.png',entry.finalMarkerBlob);
+   zip.file(base+'.patt',entry.pattText);
+   zip.file('LEEME.txt','Marcador '+entry.name+'\nTamaño de impresión: 150 × 150 mm, escala 100%.\nPattern ratio AR.js: '+(entry.markerRatio||MARKER_RATIO)+'\nURL del QR: '+routeURL(session.id)+'\nAVISO: URL reservada, recorrido no publicado. No colocar en sala hasta publicar y probar el seguimiento.\n');
+   const blob=await zip.generateAsync({type:'blob'});
+   const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=base+'-marcador.zip';a.click();setTimeout(()=>URL.revokeObjectURL(url),3500);
+   inform('ZIP descargado: PNG 15 × 15 cm + patrón .patt. El QR se activará cuando publiquemos el recorrido.');
+ }catch(error){inform('No se pudo descargar: '+error.message,true);}
+};
+$('printMarker').onclick=async()=>{
+ const entry=selectedEntry();
+ if(!entry?.finalMarkerBlob)return;
+ if(printURL)URL.revokeObjectURL(printURL);
+ printURL=URL.createObjectURL(entry.finalMarkerBlob);
+ printer.src=printURL;
+ try{
+   await new Promise((resolve,reject)=>{
+     if(printer.complete&&printer.naturalWidth)return resolve();
+     printer.onload=resolve;printer.onerror=()=>reject(Error('No se cargó la imagen'));
+   });
+   window.print();
+ }catch(error){inform('No se pudo imprimir: '+error.message,true);}
+};
+window.addEventListener('afterprint',()=>{if(printURL){URL.revokeObjectURL(printURL);printURL=null;printer.removeAttribute('src');}});
 $('saveSession').onclick=async()=>{
 try{session.updatedAt=new Date().toISOString();await sessionSave();clean();await refreshSessions();inform('Recorrido guardado en este navegador. Podés volver a abrirlo desde la lista. Para respaldo usá Exportar ZIP.')}
 catch(error){inform('No se pudo guardar: '+error.message,true)}
