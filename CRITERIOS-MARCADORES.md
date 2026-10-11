@@ -29,10 +29,14 @@ La decisión adoptada para el editor es un **solo cuadrado limpio de 15 × 15 cm
 - Cada recorrido obtiene un ID estable al crearse, y con ese ID se reserva una URL pública: `recorrido.html?id=<ID>`.
 - El QR es el mismo para todos los marcadores de ese recorrido y se compone automáticamente; no hay selector de posición ni tamaño.
 - Cada marcador recibe su propia imagen validada. El QR ocupa la **esquina inferior derecha del área de imagen interior**, con fondo blanco de seguridad; no se tapa el borde negro que AR.js necesita reconocer.
-- La composición impresa usa un margen blanco exterior y un borde negro; el `patternRatio` de los nuevos patrones es **0.72**. El reproductor público deberá inicializar AR.js con ese mismo valor: no debe mezclarse con marcadores .patt anteriores hechos a ratio 0.5 sin adaptación.
+- La composición impresa usa un margen blanco exterior y un borde negro; el `patternRatio` de los nuevos patrones es **0.88**. El reproductor público deberá inicializar AR.js con ese mismo valor: no debe mezclarse con marcadores .patt anteriores hechos a ratio 0.5 sin adaptación.
+- La banda blanca exterior ocupa un **4,5 % de lado** (6,75 mm de margen por lado), y el marco negro ocupa unos **8,2 mm por lado**. La imagen interior resultante mide aproximadamente **12 × 12 cm**.
+- El editor detecta márgenes uniformes de la imagen subida y autoencuadra la forma principal hasta aproximadamente el 96 % del área interior; preserva el color del fondo estimado en las esquinas.
+- El QR lleva una zona blanca de seguridad para que el teléfono pueda leerlo, incluso cuando su recuadro queda muy cerca de la esquina inferior derecha del patrón interior.
 - El generador reduce la **imagen interior ya combinada con QR** para codificar su archivo `.patt`. El borde negro se añade únicamente a la versión para impresión, siguiendo el esquema de AR.js Marker-Creator.
 - La imagen imprimible se exporta en PNG de 1800 × 1800 px; el botón de impresión usa CSS físico de **150 × 150 mm**.
 - El PNG y el archivo `.patt` se incluyen juntos en la descarga ZIP; el guardado local también conserva ambos.
+- Los marcadores antiguos generados con `patternRatio: 0.72` **no deben mezclarse** con la nueva geometría. Deben volver a generarse para utilizarse con un detector configurado a `0.88`.
 - **Hasta que se publique el recorrido**, ese QR abrirá una página que avisa que la experiencia aún no está disponible. La URL y el QR no cambian al publicar.
 - Una vez publicado, se deberán probar escaneo del QR, reconocimiento del .patt, estabilidad de seguimiento, legibilidad a distintas distancias y combinaciones de varios marcadores. La validación previa de una imagen no garantiza su comportamiento con el QR superpuesto.
 
