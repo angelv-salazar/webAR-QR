@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Editor de marcadores | WebAR QR</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f4f5f5;color:#18232a;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+header{padding:26px 18px 16px;max-width:1080px;margin:auto}
+h1{font-size:clamp(23px,4vw,35px);margin:0 0 8px}
+h2{font-size:18px;margin:0 0 13px}
+p{line-height:1.5;color:#52606a;margin:4px 0}
+main{max-width:1080px;margin:0 auto;padding:0 18px 40px;display:grid;grid-template-columns:minmax(280px,400px) minmax(300px,1fr);gap:18px}
+.panel{background:white;border:1px solid #dde2e5;border-radius:14px;padding:19px;min-width:0}
+label{display:block;font-size:13px;font-weight:600;margin:14px 0 5px}
+input,select,textarea{font:14px system-ui;width:100%;border:1px solid #c6d0d5;border-radius:8px;padding:10px;background:#fff;color:#1c2932}
+input[type=color]{padding:3px;width:85px;height:42px;cursor:pointer}
+textarea{resize:vertical;min-height:110px}
+.row{display:flex;gap:10px;align-items:center}
+.row>*{flex:1}
+button{border:0;border-radius:9px;padding:11px 14px;background:#172d31;color:white;font:600 14px system-ui;cursor:pointer}
+button.alt{background:#dfe6e8;color:#1b2b30}
+button:disabled{opacity:.55;cursor:wait}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.actions button{flex:1}
+.preview{background:#e8eced;border-radius:9px;padding:12px;display:flex;align-items:center;justify-content:center}
+canvas#preview{max-width:100%;height:auto;display:block;background:white;box-shadow:0 2px 12px #0002}
+#msg{min-height:44px;color:#3e5559;font-size:13px;margin-top:12px;line-height:1.5}
+.help{font-size:12px;color:#63717a}
+.notice{padding:12px;background:#f2f7f6;border-left:3px solid #387f72;border-radius:6px;font-size:13px;line-height:1.5;margin-top:16px}
+#qr-work{position:fixed;top:-10000px;left:-10000px;visibility:hidden}
+#batchArea{margin-top:18px;border-top:1px solid #e1e5e7;padding-top:12px}
+#batchMsg{font-size:13px;color:#465d63;line-height:1.5;margin-top:8px}
+footer{max-width:1080px;margin:0 auto;padding:0 18px 32px;font-size:13px;color:#677}
+@media(max-width:780px){main{grid-template-columns:1fr}.panel{padding:14px}}
+@media print{@page{size:A4 portrait;margin:10mm}header,main>.panel:first-child,footer,.actions,#msg,h2,.notice{display:none!important}main{display:block;padding:0}.panel{border:none;padding:0}.preview{padding:0;background:white}canvas#preview{width:160mm;max-width:160mm;box-shadow:none}}
+</style>
+</head>
+<body>
+<header>
+<h1>Editor de marcadores WebAR</h1>
+<p>Personalizá el cartel, cambiá el enlace del QR y generá uno o varios marcadores. El patrón Hiro permanece intacto para mantener el seguimiento probado.</p>
+</header>
+<main>
+<section class="panel">
+<h2>Personalización</h2>
+<label for="title">Nombre de la experiencia</label>
+<input id="title" maxlength="70" value="Entidad digital 01">
+<label for="subtitle">Descripción breve (opcional)</label>
+<input id="subtitle" maxlength="90" value="Exploración en realidad aumentada">
+<label for="url">Enlace que abrirá el QR</label>
+<input id="url" type="url" value="https://angelv-salazar.github.io/webAR-QR/ar-natural.html" spellcheck="false">
+<p class="help">El enlace debe dirigir a una experiencia publicada. Cambiarlo no cambia automáticamente el objeto 3D de la web.</p>
+<div class="row">
+ <div><label for="accent">Color del cartel exterior</label><input id="accent" type="color" value="#174c45"></div>
+ <div><label for="size">Formato de exportación</label><select id="size"><option value="poster">Cartel con nombre</option><option value="marker">Solo marcador QR + Hiro</option></select></div>
+</div>
+<div class="notice">Zona protegida: el borde negro, las letras Hiro y la posición/tamaño del QR se mantienen como en el prototipo que funcionó. Los cambios de diseño se hacen fuera de esa zona.</div>
+<div class="actions"><button id="render">Actualizar vista</button><button class="alt" id="download" disabled>Descargar PNG</button><button class="alt" id="print" disabled>Imprimir</button></div>
+<div id="msg" role="status">Preparando el marcador…</div>
+<div id="batchArea">
+<h2>Generar varios marcadores</h2>
+<p class="help">Escribí una experiencia por línea con este formato: <code>Nombre | URL</code>. Se descargará un ZIP con los marcadores y un manifiesto JSON.</p>
+<textarea id="batch" placeholder="Micelio | https://ejemplo.com/experiencia-micelio
+Humedal | https://ejemplo.com/experiencia-humedal"></textarea>
+<div class="actions"><button id="batchButton" class="alt">Generar lote ZIP</button></div>
+<div id="batchMsg" role="status"></div>
+</div>
+</section>
+<section class="panel">
+<h2>Vista previa del marcador</h2>
+<div class="preview"><canvas id="preview" width="2200" height="2520" role="img" aria-label="Vista previa del marcador QR combinado con Hiro"></canvas></div>
+<p class="help">Comprobá el QR con la cámara habitual de tu teléfono y después la detección de Hiro dentro de la experiencia AR. Probá antes de imprimir una serie.</p>
+</section>
+</main>
+<footer>Generador experimental local en el navegador. No guarda los archivos ni las configuraciones en un servidor. Para asociar automáticamente cada QR con un modelo distinto construiremos un catálogo de experiencias.</footer>
+<div id="qr-work" aria-hidden="true"></div>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const urlField=$('url'), titleField=$('title'), subtitleField=$('subtitle'), accentField=$('accent'), sizeField=$('size');
+const preview=$('preview'), msg=$('msg');
+const original='https://angelv-salazar.github.io/webAR-QR/ar-natural.html';
+let hiroImage=null, renderSerial=0, generated=false;
+const sleep=()=>new Promise(resolve=>setTimeout(resolve,0));
+function validUrl(value){
+  let u;
+  try{u=new URL(value.trim())}catch{throw Error('El enlace debe ser una URL válida.')}
+  if(!['https:','http:'].includes(u.protocol))throw Error('Solo se admiten direcciones http o https.');
+  if(u.toString().length>180)throw Error('La URL es muy larga para este QR compacto. Usá una dirección más corta.');
+  return u.toString();
+}
+async function loadHiro(){
+  if(hiroImage)return hiroImage;
+  const img=new Image();
+  img.src='./assets/hiro.svg';
+  await new Promise((resolve,reject)=>{
+    if(img.complete&&img.naturalWidth)return resolve();
+    img.onload=resolve;img.onerror=()=>reject(Error('No se pudo cargar el marcador Hiro.'));
+  });
+  hiroImage=img;return img;
+}
+async function makeQr(url){
+  if(typeof QRCode==='undefined')throw Error('No se cargó el generador de QR.');
+  const host=$('qr-work');host.replaceChildren();
+  new QRCode(host,{text:url,width:512,height:512,colorDark:'#000000',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+  await sleep();
+  // QRCode.js crea un canvas y también puede crear una etiqueta img.
+  const canvas=host.querySelector('canvas');
+  if(canvas&&canvas.width)return canvas;
+  const img=host.querySelector('img');
+  if(img){
+    await new Promise((resolve,reject)=>{
+      if(img.complete&&img.naturalWidth)return resolve();
+      img.onload=resolve;img.onerror=()=>reject(Error('No se pudo cargar el QR.'));
+    });
+    return img;
+  }
+  throw Error('No se pudo generar el QR.');
+}
+function shrinkText(ctx,text,width,max){
+  let font=max;
+  do{ctx.font='bold '+font+'px system-ui, sans-serif';font-=2}while(ctx.measureText(text).width>width&&font>=26);
+}
+function drawPoster(ctx,config,qr){
+  const only=config.markerOnly;
+  const width=only?2000:2200,height=only?2000:2520;
+  ctx.canvas.width=width;ctx.canvas.height=height;
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,width,height);
+  const ox=only?0:100,oy=only?0:100;
+  ctx.drawImage(hiroImage,ox,oy,2000,2000);
+  // Respeta el mismo QR interior usado por el prototipo validado.
+  ctx.fillStyle='#fff';ctx.fillRect(ox+1000,oy+600,400,400);
+  ctx.imageSmoothingEnabled=false;ctx.drawImage(qr,ox+1000,oy+600,400,400);ctx.imageSmoothingEnabled=true;
+  if(only)return;
+  ctx.fillStyle=config.accent;ctx.fillRect(100,2190,2000,12);
+  ctx.fillStyle='#18232a';shrinkText(ctx,config.title,1980,91);
+  ctx.fillText(config.title,115,2340);
+  ctx.fillStyle='#5a6670';ctx.font='46px system-ui, sans-serif';
+  const sub=config.subtitle||'Abrí el QR y apuntá al marcador';
+  if(ctx.measureText(sub).width>1950){
+    ctx.font='34px system-ui, sans-serif';
+  }
+  ctx.fillText(sub,115,2440,1960);
+}
+async function build(config){
+  const target=validUrl(config.url);
+  await loadHiro();
+  const qr=await makeQr(target);
+  const c=document.createElement('canvas');
+  drawPoster(c.getContext('2d'),config,qr);
+  return c;
+}
+function currentConfig(){
+  return {title:titleField.value.trim()||'Experiencia AR',subtitle:subtitleField.value.trim(),url:urlField.value.trim(),accent:accentField.value,markerOnly:sizeField.value==='marker'};
+}
+async function update(){
+  const stamp=++renderSerial;
+  $('download').disabled=true;$('print').disabled=true;generated=false;
+  msg.textContent='Generando vista previa…';
+  try{
+    const c=await build(currentConfig());
+    if(stamp!==renderSerial)return;
+    preview.width=c.width;preview.height=c.height;
+    preview.getContext('2d').drawImage(c,0,0);
+    generated=true;$('download').disabled=false;$('print').disabled=false;
+    msg.textContent='Marcador listo. Probá que el QR se lea y que Hiro sea reconocido.';
+  }catch(e){msg.textContent='Error: '+e.message;}
+}
+function filename(s){return(s||'marcador').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60)||'marcador'}
+function downloadBlob(blob,name){
+  const href=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=href;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),2000);
+}
+function canvasBlob(canvas){return new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(Error('No se pudo exportar el canvas')),'image/png'))}
+$('render').onclick=update;
+$('download').onclick=async()=>{
+  if(!generated)return;
+  try{downloadBlob(await canvasBlob(preview),filename(titleField.value)+'.png')}catch(e){msg.textContent=e.message}
+};
+$('print').onclick=()=>{if(generated)window.print()};
+async function batchDownload(){
+  const lines=$('batch').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  const area=$('batchMsg');
+  if(lines.length===0){area.textContent='Agregá una o más líneas de Nombre | URL.';return;}
+  if(lines.length>30){area.textContent='Se admiten hasta 30 marcadores por lote.';return;}
+  if(typeof JSZip==='undefined'){area.textContent='No se pudo cargar el creador de ZIP. Revisá tu conexión.';return;}
+  $('batchButton').disabled=true;
+  const archive=new JSZip();const manifest=[];
+  try{
+    for(let i=0;i<lines.length;i++){
+      const parts=lines[i].split('|');
+      if(parts.length!==2||!parts[0].trim()||!parts[1].trim())throw Error('Línea '+(i+1)+': usá Nombre | URL.');
+      const name=parts[0].trim(),target=validUrl(parts[1]);
+      area.textContent='Generando '+(i+1)+' de '+lines.length+'…';
+      const config={title:name,subtitle:subtitleField.value.trim(),url:target,accent:accentField.value,markerOnly:sizeField.value==='marker'};
+      const canvas=await build(config);
+      const file=String(i+1).padStart(2,'0')+'-'+filename(name)+'.png';
+      archive.file(file,await canvasBlob(canvas));
+      manifest.push({nombre:name,url:target,archivo:file,patron:'Hiro'});
+    }
+    archive.file('experiencias.json',JSON.stringify(manifest,null,2));
+    const zip=await archive.generateAsync({type:'blob'});
+    downloadBlob(zip,'marcadores-webar.zip');
+    area.textContent='Lote preparado: '+lines.length+' marcador(es) y manifiesto de enlaces.';
+  }catch(e){area.textContent='Error: '+e.message}
+  finally{$('batchButton').disabled=false;}
+}
+$('batchButton').onclick=batchDownload;
+for(const input of [titleField,subtitleField,accentField,sizeField,urlField]){
+  input.addEventListener('change',update);
+}
+update();
+</script>
+</body>
+</html>
