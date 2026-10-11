@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Recorrido WebAR</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#101a18;color:#f1f5f2;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:520px;min-height:100dvh;margin:auto;padding:42px 22px;display:flex;flex-direction:column;justify-content:center;gap:16px}
+h1{font-size:clamp(25px,6vw,34px);margin:0}p{font-size:15px;line-height:1.55;color:#b9ccc4;margin:0}
+.state{padding:10px 13px;border:1px solid #587c6c;border-radius:8px;color:#b4e5d1;width:fit-content;font-size:13px}
+code{font-size:12px;overflow-wrap:anywhere;color:#d5f0e3}
+a{color:#bdebd7}
+</style>
+</head>
+<body>
+<main>
+<div class="state" id="tag">Consultando recorrido…</div>
+<h1 id="heading">Recorrido WebAR</h1>
+<p id="details">Estamos comprobando si este recorrido ya fue publicado.</p>
+<p id="key"></p>
+</main>
+<script>
+(async()=>{
+ const id=new URLSearchParams(location.search).get('id');
+ const tag=document.getElementById('tag');
+ const heading=document.getElementById('heading');
+ const details=document.getElementById('details');
+ if(!id||!/^id-[a-z0-9-]{8,60}$/i.test(id)){
+   tag.textContent='Enlace incompleto';
+   heading.textContent='No se encontró un recorrido';
+   details.textContent='El enlace debe incluir un identificador válido.';
+   return;
+ }
+ const url='./recorridos/'+encodeURIComponent(id)+'/manifest.json';
+ try{
+   const response=await fetch(url,{cache:'no-store'});
+   if(!response.ok)throw Error('not published');
+   const config=await response.json();
+   // El reproductor de recorridos se conectará aquí en la siguiente fase.
+   tag.textContent='Recorrido registrado';
+   heading.textContent=config.name||'Recorrido WebAR';
+   details.textContent='El recorrido está registrado, pero el reproductor definitivo todavía no está habilitado.';
+ }catch{
+   tag.textContent='Recorrido todavía no publicado';
+   heading.textContent='Este recorrido está en preparación';
+   details.textContent='El código QR ya está reservado, pero la experiencia de realidad aumentada se activará cuando el autor publique el recorrido. No hace falta cambiar el QR después.';
+ }
+ document.getElementById('key').textContent='ID: '+id;
+})();
+</script>
+</body>
+</html>
