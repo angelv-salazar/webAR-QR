@@ -16,6 +16,8 @@
     #instruction{flex:1;border-radius:9px;background:#0a0a0acf;padding:10px 12px;font-size:13px;line-height:1.3}
     #full,#framing,#details{border:1px solid #9999;background:#111c;color:#fff;padding:10px;border-radius:9px;font:12px system-ui}
     #framing,#details{white-space:nowrap}
+    #projectionMode{border:1px solid #47e1a5;background:#0c3e33;color:#eafff5;padding:10px;border-radius:9px;font:600 12px system-ui}
+    #projectionMode[hidden]{display:none!important}
     #top{flex-wrap:wrap}
     #instruction{min-width:40%;font-size:13px}
     #diagnostic[hidden]{display:none!important}
@@ -38,7 +40,7 @@
     <video id="camera" autoplay muted playsinline></video>
     <div id="graphics"></div>
   </div>
-  <div id="top"><div id="instruction">Recorrido AR · Buscando publicación…</div><button id="full" hidden>Pantalla completa</button><button id="framing" type="button" aria-label="Cambiar encuadre">Ver todo</button><button id="details" type="button" aria-label="Mostrar datos técnicos">Detalles</button></div>
+  <div id="top"><div id="instruction">Recorrido AR · Buscando publicación…</div><button id="full" hidden>Pantalla completa</button><button id="framing" type="button" aria-label="Cambiar encuadre">Ver todo</button><button id="details" type="button" aria-label="Mostrar datos técnicos">Detalles</button><button id="projectionMode" type="button" hidden>Modo de cámara</button></div>
   <button id="start" disabled>Cargando…</button>
   <div id="diagnostic" hidden>Cargando bibliotecas…</div>
   <script>
@@ -59,6 +61,7 @@
     const details=document.getElementById('details');
     const instruction=document.getElementById('instruction');
     const info=document.getElementById('diagnostic');
+    const projectionButton=document.getElementById('projectionMode');
     const assets='https://raw.githack.com/AR-js-org/AR.js/3.4.8/data/data/';
     let stream=null,context=null,renderer=null,camera=null;
     const activeMarkers=[];
@@ -71,7 +74,33 @@
     let lastError='',lastLayout='',fillViewport=true,lastVisibleText='';
     const scene=new THREE.Scene();
     // Modo opcional de calibración: no altera la experiencia pública normal.
-    const calibrationMode=new URLSearchParams(location.search).get('calibrar')==='1';
+    const params=new URLSearchParams(location.search);
+    const calibrationMode=params.get('calibrar')==='1';
+    // Esta prueba conserva el recorrido publicado sin cambios; el modo normal
+    // mantiene AR.js tal como estaba. En calibración puede compararse en vivo.
+    let projectionMode=calibrationMode && params.get('proyeccion')==='nativa'?'native':'original';
+    function updateProjectionButton(){
+      if(!calibrationMode)return;
+      projectionButton.hidden=false;
+      projectionButton.textContent=projectionMode==='native'?'Cámara: nativa · comparar':'Cámara: original · comparar';
+      projectionButton.title='Alternar fotograma original sin rotación y procesamiento anterior de AR.js';
+    }
+    function applyCameraFrameOrientation(){
+      if(!context?.arController||!video.videoWidth)return;
+      const controller=context.arController;
+      // ARController.process() gira 90° y estira el frame cuando orientation === portrait.
+      // Eso se debe evitar al utilizar un stream cuyos píxeles YA están en 480x640.
+      const requested=projectionMode==='native'?'landscape':
+                      video.videoWidth>=video.videoHeight?'landscape':'portrait';
+      controller.orientation=requested;
+      if(controller.options)controller.options.orientation=requested;
+      // Conservamos la matriz intrínseca del mismo detector ARToolKit.
+      // NO añadimos una compensación artificial a la escala 3D.
+      camera.projectionMatrix.copy(context.getProjectionMatrix());
+      camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+      lastVisibleText='';
+      updateProjectionButton();
+    }
 
     function constraints(){
       // Coincide con "Sin restricciones de tamaño" del laboratorio.
@@ -126,6 +155,11 @@
        '\nAR: '+(trackingReady?'listo':'iniciando')+' | marcadores: '+activeMarkers.length+
        ' | modelos GLB: '+readyCount+'/'+activeMarkers.length+
        '\nDetectados: '+(visible.length?visible.map(row=>row.entry.id).join(', '):'ninguno')+
+       (calibrationMode && context?.arController
+         ? '\nModo: '+(projectionMode==='native'?'Nativo (sin girar fotograma)':'Anterior (rotación portrait)')+
+           ' | detector: '+context.arController.canvas.width+'×'+context.arController.canvas.height+
+           ' | orientación: '+context.arController.orientation
+         : '')+
        (lastError?'\n'+lastError:'');
     }
 
@@ -338,12 +372,9 @@
           const timeout=setTimeout(()=>reject(new Error('El detector tardó demasiado en iniciar')),15000);
           context.init(()=>{clearTimeout(timeout);resolve()});
         });
-        camera.projectionMatrix.copy(context.getProjectionMatrix());
-        if(context.arController){
-          const direction=vw>=vh?'landscape':'portrait';
-          context.arController.orientation=direction;
-          if(context.arController.options)context.arController.options.orientation=direction;
-        }
+        // En la prueba nativa, mantener el flujo de video y el detector con
+        // la misma orientación espacial (sin girar el fotograma vertical).
+        applyCameraFrameOrientation();
         for(const row of activeMarkers){
           new ArMarkerControls(context,row.root,{
             type:'pattern',
@@ -380,6 +411,7 @@
           }
           info.hidden=false;
           instruction.textContent='CALIBRACIÓN · Cubo 15 × 15 × 15 cm';
+          updateProjectionButton();
         }else{
           instruction.textContent='Cargando modelos 3D de la colección…';
           loadModels().then(()=>{status()}).catch(e=>{lastError=e.message;status()});
@@ -396,6 +428,15 @@
         start.disabled=false;start.textContent='Reintentar cámara';
       }
     }
+    updateProjectionButton();
+    projectionButton.addEventListener('click',()=>{
+      if(!calibrationMode)return;
+      projectionMode=projectionMode==='native'?'original':'native';
+      if(context?.arController)applyCameraFrameOrientation();
+      else updateProjectionButton();
+      lastError='';
+      status();
+    });
     start.disabled=true;start.textContent='Buscando recorrido…';
     loadExhibition().then(config=>{
       start.disabled=false;start.textContent='Iniciar experiencia AR';
