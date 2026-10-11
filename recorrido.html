@@ -33,13 +33,13 @@
       bottom:calc(12px + env(safe-area-inset-bottom) + var(--diagnostic-clearance,0px));
       max-width:470px;margin:0 auto;overflow:hidden;isolation:isolate;
       background:linear-gradient(180deg,
-        rgba(247,251,249,.80) 0%,
-        rgba(247,251,249,.63) 48%,
-        rgba(247,251,249,.30) 100%);
-      color:#13241f;border:1px solid rgba(255,255,255,.58);
-      border-radius:18px;
-      box-shadow:0 10px 30px rgba(8,24,16,.13),inset 0 1px rgba(255,255,255,.34);
-      backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)
+        rgba(247,251,249,.60) 0%,
+        rgba(247,251,249,.38) 45%,
+        rgba(247,251,249,0) 100%);
+      color:#13241f;border:0;
+      border-radius:18px 18px 0 0;
+      box-shadow:none;
+      backdrop-filter:none;-webkit-backdrop-filter:none
     }
     #objectDescription[hidden]{display:none!important}
     #objectDescription.entering{animation:descriptionRise .42s cubic-bezier(.2,.8,.2,1) both}
@@ -98,7 +98,7 @@
   <section id="objectDescription" hidden role="region" aria-label="Descripción del objeto reconocido" data-collapsed="false">
     <div id="objectDescHeader">
       <div id="objectDescIdentity">
-        <span id="objectDescEyebrow"><span id="objectDescDot" aria-hidden="true"></span> Objeto reconocido</span>
+        <span id="objectDescEyebrow"><span id="objectDescDot" aria-hidden="true"></span> Espécimen reconocido</span>
         <strong id="objectDescTitle"></strong>
       </div>
       <button id="objectDescToggle" type="button" aria-expanded="true" aria-controls="objectDescText">Minimizar</button>
