@@ -22,33 +22,30 @@ El propósito de este documento es establecer una **política de diseño y valid
 
 El validador realiza comprobaciones aproximadas sobre píxeles. No puede garantizar que un marcador vaya a seguirse de manera estable: cada patrón tiene que probarse en teléfono, con iluminación y distancia reales.
 
-## Composición de impresión prevista
+## Composición actual de impresión: QR integrado
 
-- **Tamaño físico del soporte:** 15 × 15 cm.
-- Patrón cuadrado con marco negro continuo y margen exterior blanco de alto contraste.
-- Se reservará espacio para un QR **fuera del patrón entrenado** cuando usemos un patrón .patt personalizado. Así, todos los QR de un recorrido podrán enlazar a una misma URL sin modificar la imagen usada para entrenar el reconocimiento.
-- Exportación prevista: SVG o PDF vectorial cuando sea posible, y PNG de alta resolución para impresión (aproximadamente 1800 × 1800 px o más para el soporte completo a 300 ppp).
-- Impresión mate, sin reflejos, con bordes nítidos y sin deformación de la forma cuadrada.
+La decisión adoptada para el editor es un **solo cuadrado limpio de 15 × 15 cm** por marcador.
 
-**Importante:** el ejemplo anterior QR + Hiro se validó con un QR *dentro* del área blanca de Hiro, pero no debemos asumir que un patrón .patt nuevo reconocerá correctamente un QR superpuesto. O entrenamos sobre el diseño combinado final inmutable, o colocamos el QR fuera del patrón; para el gestor elegimos la segunda opción por estabilidad.
+- Cada recorrido obtiene un ID estable al crearse, y con ese ID se reserva una URL pública: `recorrido.html?id=<ID>`.
+- El QR es el mismo para todos los marcadores de ese recorrido y se compone automáticamente; no hay selector de posición ni tamaño.
+- Cada marcador recibe su propia imagen validada. El QR ocupa la **esquina inferior derecha del área de imagen interior**, con fondo blanco de seguridad; no se tapa el borde negro que AR.js necesita reconocer.
+- La composición impresa usa un margen blanco exterior y un borde negro; el `patternRatio` de los nuevos patrones es **0.72**. El reproductor público deberá inicializar AR.js con ese mismo valor: no debe mezclarse con marcadores .patt anteriores hechos a ratio 0.5 sin adaptación.
+- El generador reduce la **imagen interior ya combinada con QR** para codificar su archivo `.patt`. El borde negro se añade únicamente a la versión para impresión, siguiendo el esquema de AR.js Marker-Creator.
+- La imagen imprimible se exporta en PNG de 1800 × 1800 px; el botón de impresión usa CSS físico de **150 × 150 mm**.
+- El PNG y el archivo `.patt` se incluyen juntos en la descarga ZIP; el guardado local también conserva ambos.
+- **Hasta que se publique el recorrido**, ese QR abrirá una página que avisa que la experiencia aún no está disponible. La URL y el QR no cambian al publicar.
+- Una vez publicado, se deberán probar escaneo del QR, reconocimiento del .patt, estabilidad de seguimiento, legibilidad a distintas distancias y combinaciones de varios marcadores. La validación previa de una imagen no garantiza su comportamiento con el QR superpuesto.
 
-## Uso del archivo .patt
+Este diseño tiene un compromiso: el QR ocupa parte del contenido entrenado, por lo que algunos diseños podrán perder precisión de seguimiento. **No se considerarán listos para exposición sin una prueba en el celular sobre la impresión final.**
 
-- Para un marcador personalizado, además de la imagen hace falta generar un archivo .patt válido.
-- Formato comprobable: 3072 valores enteros de 0 a 255 (4 orientaciones × 3 canales × 16 × 16).
-- No reutilizar un mismo .patt en marcadores diferentes dentro del recorrido.
-- Si se cambia la imagen, el patrón anterior se invalida y deberá generarse nuevamente.
-- Una imagen admitida por el validador **no está publicada ni lista para imprimir automáticamente**. Quedan pendientes la generación del .patt, la composición del soporte final y las pruebas con cámara.
+## Patrón .patt y publicación
 
-## Orden de desarrollo
-
-1. Validación de imágenes en el editor: formatos, dimensiones, contrastes, asimetrías, duplicados.
-2. Generación automática del .patt con AR.js Marker-Creator, conservando una única disposición de marco y margen.
-3. Composición del QR vinculado al recorrido **fuera del patrón**, dentro de 15 × 15 cm, y exportación de archivos imprimibles.
-4. Publicación del recorrido con sus GLB, .patt, metadatos de posición, tamaño y animaciones.
-5. Pruebas en varios teléfonos y ajuste de rendimiento al aumentar el número de marcadores.
+- Para cada imagen personalizada se genera el patrón .patt de la composición interior final, con un QR fijo por recorrido.
+- Si se sustituye la imagen, se invalida el .patt y el PNG generados.
+- No reutilizar un mismo patrón en marcadores distintos del mismo recorrido.
+- Publicar la URL reservada exige subir al hosting todos los GLB, .patt, imágenes y el manifiesto del recorrido.
+- En esta etapa se genera la composición imprimible en el editor, pero aún no está implementada la publicación completa del recorrido.
 
 Referencias:
 - https://ar-js-org.github.io/AR.js-Docs/marker-based/
 - https://github.com/AR-js-org/Marker-Creator
-- https://www.connected-environments.org/blog/2020-01-13-ar-playing-cards/
