@@ -51,6 +51,7 @@
   </script>
   <script type="module">
     import * as THREE from 'three';
+    import {makeCalibrationURL} from './camera-calibration.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import {ArToolkitContext,ArMarkerControls} from 'threex';
 
@@ -74,55 +75,45 @@
     const clock=new THREE.Clock();
     const loadedModels=[];
     let trackingReady=false,frameId=0,lastDetect=0,lastStatus=0,started=false;
+    let generatedCalibration=null;
     let lastError='',lastLayout='',fillViewport=true,lastVisibleText='';
     const scene=new THREE.Scene();
-    // Modo opcional de calibración: no altera la experiencia pública normal.
+    // Modo de calibración visual disponible únicamente con ?calibrar=1.
     const params=new URLSearchParams(location.search);
+    // Recuperación de compatibilidad para teléfonos donde la calibración ideal
+    // no funcione: ?camara=clasica vuelve a la implementación anterior.
+    const legacyCamera=params.get('camara')==='clasica';
     const calibrationMode=params.get('calibrar')==='1';
     // Esta prueba conserva el recorrido publicado sin cambios; el modo normal
     // mantiene AR.js tal como estaba. En calibración puede compararse en vivo.
-    let projectionMode=calibrationMode && params.get('proyeccion')==='nativa'?'native':'original';
-    let equalizeFocal=calibrationMode && params.get('focales')==='iguales';
+    let projectionMode=legacyCamera?'original':'native';
+    let equalizeFocal=false; // el detector y el render usarán el mismo camera_para.dat
     let focalReport=null;
     function updateProjectionButton(){
-      if(!calibrationMode)return;
-      projectionButton.hidden=false;
-      projectionButton.textContent=projectionMode==='native'?'Cámara: nativa · comparar':'Cámara: original · comparar';
-      projectionButton.title='Alternar el fotograma sin girar y el procesamiento anterior de AR.js';
-      opticsButton.hidden=false;
-      opticsButton.disabled=projectionMode!=='native';
-      opticsButton.textContent=equalizeFocal?'Proyección: focales iguales':'Proyección: estándar';
-      opticsButton.title='En modo nativo, comparar una proyección con focales X e Y iguales en píxeles; es diagnóstico, no calibración física';
+      projectionButton.hidden=true;
+      opticsButton.hidden=true;
     }
     function applyCameraFrameOrientation(){
       if(!context?.arController||!video.videoWidth)return;
       const controller=context.arController;
-      // ARController.process() gira 90° y estira el frame cuando orientation === portrait.
-      // Eso se debe evitar al utilizar un stream cuyos píxeles YA están en 480x640.
-      const requested=projectionMode==='native'?'landscape':
-                      video.videoWidth>=video.videoHeight?'landscape':'portrait';
-      controller.orientation=requested;
-      if(controller.options)controller.options.orientation=requested;
-      // Matriz original de ARToolKit, sin modificar los modelos ni su escala.
-      const matrix=context.getProjectionMatrix();
-      camera.projectionMatrix.copy(matrix);
-      const m=camera.projectionMatrix.elements;
-      const W=video.videoWidth,H=video.videoHeight;
-      const fx=Math.abs(m[0]*W/2),fy=Math.abs(m[5]*H/2);
-      const adjustment=(fx>0&&fy>0)?fx/fy:1;
-      // Diagnóstico óptico (no es una calibración certificada):
-      // en un sensor de píxeles cuadrados esperamos fx≈fy.
-      // Se modifica SOLO P[1,1], y SOLO durante calibración con vídeo nativo.
-      if(calibrationMode&&projectionMode==='native'&&equalizeFocal&&Number.isFinite(adjustment)&&adjustment>.1&&adjustment<10){
-        m[5]*=adjustment;
-      }
+      // Calibración nueva: vídeo sin rotar, con intrínsecos adaptados al detector.
+      // Modo de compatibilidad: restaurar el procesamiento anterior completo.
+      const orientation=legacyCamera && video.videoWidth<video.videoHeight?'portrait':'landscape';
+      controller.orientation=orientation;
+      if(controller.options)controller.options.orientation=orientation;
+      camera.projectionMatrix.copy(context.getProjectionMatrix());
       camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
-      focalReport={originalFx:fx,originalFy:fy,adjustment,
-        normalizedFx:Math.abs(m[0]*W/2),normalizedFy:Math.abs(m[5]*H/2)};
+      const m=camera.projectionMatrix.elements,W=video.videoWidth,H=video.videoHeight;
+      focalReport={
+        originalFx:Math.abs(m[0]*W/2),
+        originalFy:Math.abs(m[5]*H/2),
+        adjustment:1,
+        normalizedFx:Math.abs(m[0]*W/2),
+        normalizedFy:Math.abs(m[5]*H/2)
+      };
       lastVisibleText='';
       updateProjectionButton();
     }
-
     function constraints(){
       // Coincide con "Sin restricciones de tamaño" del laboratorio.
       // No solicitar width, height, aspectRatio ni frameRate.
@@ -186,6 +177,10 @@
            ' | Y/X '+(focalReport.originalFx>0?focalReport.originalFy/focalReport.originalFx:0).toFixed(3)+
            '\nProyección '+(projectionMode==='native'&&equalizeFocal?'igualada':'sin modificar')+
            ' | factor óptico Y ×'+focalReport.adjustment.toFixed(3)
+         : '')+
+       (generatedCalibration
+         ? '\nCalibración coherente: '+generatedCalibration.width+'×'+generatedCalibration.height+
+           ' | focal '+generatedCalibration.focal.toFixed(1)+' px (X=Y)'
          : '')+
        (lastError?'\n'+lastError:'');
     }
@@ -387,8 +382,12 @@
         const long=640,short=Math.max(240,Math.round(640*Math.min(vw,vh)/Math.max(vw,vh)));
         const detectionW=vw>=vh?long:short;
         const detectionH=vw>=vh?short:long;
+        // Se genera ANTES de iniciar ARToolKit para que tanto el seguimiento
+        // como la proyección usen la MISMA calibración, en vez de corregir
+        // únicamente la cámara virtual después de calcular el marcador.
+        if(!legacyCamera)generatedCalibration=makeCalibrationURL(detectionW,detectionH,0.95);
         context=new ArToolkitContext({
-          cameraParametersUrl:assets+'camera_para.dat',
+          cameraParametersUrl:legacyCamera?assets+'camera_para.dat':generatedCalibration.url,
           detectionMode:'mono',
           patternRatio: Number(collection.patternRatio),
           canvasWidth:detectionW,
@@ -495,7 +494,10 @@
     });
     start.addEventListener('click',initialize);
 
-    window.addEventListener('pagehide',()=>transientUrls.forEach(url=>URL.revokeObjectURL(url)));
+    window.addEventListener('pagehide',()=>{
+      transientUrls.forEach(url=>URL.revokeObjectURL(url));
+      if(generatedCalibration)URL.revokeObjectURL(generatedCalibration.url);
+    });
     if(document.documentElement.requestFullscreen){
       full.hidden=false;
       full.addEventListener('click',async()=>{
