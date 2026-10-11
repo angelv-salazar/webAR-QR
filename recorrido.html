@@ -18,6 +18,8 @@
     #framing,#details{white-space:nowrap}
     #projectionMode{border:1px solid #47e1a5;background:#0c3e33;color:#eafff5;padding:10px;border-radius:9px;font:600 12px system-ui}
     #projectionMode[hidden]{display:none!important}
+    #opticsMode{border:1px solid #b1c7ea;background:#203954;color:#f2f6ff;padding:10px;border-radius:9px;font:600 12px system-ui}
+    #opticsMode[hidden]{display:none!important}
     #top{flex-wrap:wrap}
     #instruction{min-width:40%;font-size:13px}
     #diagnostic[hidden]{display:none!important}
@@ -40,7 +42,7 @@
     <video id="camera" autoplay muted playsinline></video>
     <div id="graphics"></div>
   </div>
-  <div id="top"><div id="instruction">Recorrido AR · Buscando publicación…</div><button id="full" hidden>Pantalla completa</button><button id="framing" type="button" aria-label="Cambiar encuadre">Ver todo</button><button id="details" type="button" aria-label="Mostrar datos técnicos">Detalles</button><button id="projectionMode" type="button" hidden>Modo de cámara</button></div>
+  <div id="top"><div id="instruction">Recorrido AR · Buscando publicación…</div><button id="full" hidden>Pantalla completa</button><button id="framing" type="button" aria-label="Cambiar encuadre">Ver todo</button><button id="details" type="button" aria-label="Mostrar datos técnicos">Detalles</button><button id="projectionMode" type="button" hidden>Modo de cámara</button><button id="opticsMode" type="button" hidden>Proyección: estándar</button></div>
   <button id="start" disabled>Cargando…</button>
   <div id="diagnostic" hidden>Cargando bibliotecas…</div>
   <script>
@@ -62,6 +64,7 @@
     const instruction=document.getElementById('instruction');
     const info=document.getElementById('diagnostic');
     const projectionButton=document.getElementById('projectionMode');
+    const opticsButton=document.getElementById('opticsMode');
     const assets='https://raw.githack.com/AR-js-org/AR.js/3.4.8/data/data/';
     let stream=null,context=null,renderer=null,camera=null;
     const activeMarkers=[];
@@ -79,11 +82,17 @@
     // Esta prueba conserva el recorrido publicado sin cambios; el modo normal
     // mantiene AR.js tal como estaba. En calibración puede compararse en vivo.
     let projectionMode=calibrationMode && params.get('proyeccion')==='nativa'?'native':'original';
+    let equalizeFocal=calibrationMode && params.get('focales')==='iguales';
+    let focalReport=null;
     function updateProjectionButton(){
       if(!calibrationMode)return;
       projectionButton.hidden=false;
       projectionButton.textContent=projectionMode==='native'?'Cámara: nativa · comparar':'Cámara: original · comparar';
-      projectionButton.title='Alternar fotograma original sin rotación y procesamiento anterior de AR.js';
+      projectionButton.title='Alternar el fotograma sin girar y el procesamiento anterior de AR.js';
+      opticsButton.hidden=false;
+      opticsButton.disabled=projectionMode!=='native';
+      opticsButton.textContent=equalizeFocal?'Proyección: focales iguales':'Proyección: estándar';
+      opticsButton.title='En modo nativo, comparar una proyección con focales X e Y iguales en píxeles; es diagnóstico, no calibración física';
     }
     function applyCameraFrameOrientation(){
       if(!context?.arController||!video.videoWidth)return;
@@ -94,10 +103,22 @@
                       video.videoWidth>=video.videoHeight?'landscape':'portrait';
       controller.orientation=requested;
       if(controller.options)controller.options.orientation=requested;
-      // Conservamos la matriz intrínseca del mismo detector ARToolKit.
-      // NO añadimos una compensación artificial a la escala 3D.
-      camera.projectionMatrix.copy(context.getProjectionMatrix());
+      // Matriz original de ARToolKit, sin modificar los modelos ni su escala.
+      const matrix=context.getProjectionMatrix();
+      camera.projectionMatrix.copy(matrix);
+      const m=camera.projectionMatrix.elements;
+      const W=video.videoWidth,H=video.videoHeight;
+      const fx=Math.abs(m[0]*W/2),fy=Math.abs(m[5]*H/2);
+      const adjustment=(fx>0&&fy>0)?fx/fy:1;
+      // Diagnóstico óptico (no es una calibración certificada):
+      // en un sensor de píxeles cuadrados esperamos fx≈fy.
+      // Se modifica SOLO P[1,1], y SOLO durante calibración con vídeo nativo.
+      if(calibrationMode&&projectionMode==='native'&&equalizeFocal&&Number.isFinite(adjustment)&&adjustment>.1&&adjustment<10){
+        m[5]*=adjustment;
+      }
       camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+      focalReport={originalFx:fx,originalFy:fy,adjustment,
+        normalizedFx:Math.abs(m[0]*W/2),normalizedFy:Math.abs(m[5]*H/2)};
       lastVisibleText='';
       updateProjectionButton();
     }
@@ -159,6 +180,12 @@
          ? '\nModo: '+(projectionMode==='native'?'Nativo (sin girar fotograma)':'Anterior (rotación portrait)')+
            ' | detector: '+context.arController.canvas.width+'×'+context.arController.canvas.height+
            ' | orientación: '+context.arController.orientation
+         : '')+
+       (calibrationMode && focalReport
+         ? '\nFocal de AR.js: X '+focalReport.originalFx.toFixed(1)+' px | Y '+focalReport.originalFy.toFixed(1)+' px'+
+           ' | Y/X '+(focalReport.originalFx>0?focalReport.originalFy/focalReport.originalFx:0).toFixed(3)+
+           '\nProyección '+(projectionMode==='native'&&equalizeFocal?'igualada':'sin modificar')+
+           ' | factor óptico Y ×'+focalReport.adjustment.toFixed(3)
          : '')+
        (lastError?'\n'+lastError:'');
     }
@@ -435,6 +462,13 @@
       if(context?.arController)applyCameraFrameOrientation();
       else updateProjectionButton();
       lastError='';
+      status();
+    });
+    opticsButton.addEventListener('click',()=>{
+      if(!calibrationMode||projectionMode!=='native')return;
+      equalizeFocal=!equalizeFocal;
+      if(context?.arController)applyCameraFrameOrientation();
+      else updateProjectionButton();
       status();
     });
     start.disabled=true;start.textContent='Buscando recorrido…';
