@@ -3,29 +3,44 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>WebAR QR — prueba de video natural</title>
+<title>WebAR QR — Diagnóstico 7</title>
 <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.7/aframe/build/aframe-ar.js"></script>
 <style>
-html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:system-ui,sans-serif}
-#hint{position:fixed;z-index:30;top:12px;left:12px;right:12px;background:rgba(12,18,23,.88);color:#fff;border-radius:10px;padding:12px;text-align:center;font-size:14px;pointer-events:none}
-a-scene{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;background:transparent!important}
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#171717;font-family:system-ui,sans-serif}
+#hint{position:fixed;z-index:100;top:12px;left:12px;right:12px;background:rgba(12,18,23,.88);color:white;border-radius:10px;padding:12px;text-align:center;font-size:14px;pointer-events:none}
+#status{position:fixed;z-index:100;bottom:14px;left:12px;right:12px;color:#fff;background:#000b;padding:8px;border-radius:8px;font-size:12px;pointer-events:none}
+a-scene{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;background:transparent!important;z-index:2}
 a-scene canvas{background:transparent!important}
+video.arjs-video,video#arjs-video{z-index:1!important;object-fit:contain!important;background:#171717!important}
 .a-enter-vr,.a-enter-ar{display:none!important}
 </style>
 </head>
 <body>
-<div id="hint">Apuntá al marcador Hiro para ver el objeto 3D.</div>
-<a-scene embedded xr-mode-ui="enabled: false" vr-mode-ui="enabled: false"
-renderer="alpha: true; antialias: true; colorManagement: false"
-background="color: #000000; transparent: true"
-arjs="sourceType: webcam; videoTexture: false; debugUIEnabled: false;">
-<a-marker preset="hiro">
-<a-entity position="0 0.55 0">
-<a-icosahedron radius="0.45" color="#47e6a1" animation="property: rotation; to: 0 360 0; loop: true; dur: 9000; easing: linear"></a-icosahedron>
-</a-entity>
-</a-marker>
+<div id="hint">Apuntá al marcador Hiro.</div>
+<div id="status">Iniciando cámara…</div>
+<a-scene embedded vr-mode-ui="enabled: false" xr-mode-ui="enabled: false" renderer="alpha: true; antialias: true" arjs="sourceType: webcam; videoTexture: false; debugUIEnabled: false;">
+<a-marker preset="hiro"><a-entity position="0 0.55 0"><a-icosahedron radius="0.45" color="#47e6a1" animation="property: rotation; to: 0 360 0; loop: true; dur: 9000; easing: linear"></a-icosahedron></a-entity></a-marker>
 <a-entity camera></a-entity>
 </a-scene>
+<script>
+(function(){
+  const status=document.getElementById('status');
+  function check(){
+    const v=document.querySelector('video');
+    if(!v){status.textContent='Diagnóstico: todavía no se creó el video';return;}
+    const ready=v.readyState;
+    const track=v.srcObject && v.srcObject.getVideoTracks ? v.srcObject.getVideoTracks()[0] : null;
+    status.textContent='Video '+v.videoWidth+'×'+v.videoHeight+' | estado '+ready+(track?' | cámara '+track.readyState:'');
+    /* Keep the camera visible as its own HTML element, without stretching it. */
+    if(v.classList.contains('arjs-video') || v.id==='arjs-video'){
+      v.style.setProperty('z-index','1','important');
+      v.style.setProperty('object-fit','contain','important');
+    }
+  }
+  setInterval(check,1000);
+  check();
+})();
+</script>
 </body>
 </html>
