@@ -1,0 +1,47 @@
+{
+  "format": "estudio-webar-public-v1",
+  "id": "id-mv34olai-fdf4o0",
+  "name": "Test_1",
+  "description": "Prueba 1",
+  "patternRatio": 0.88,
+  "physicalSizeCm": 15,
+  "bundle": "assets.bundle.b64",
+  "items": [
+    {
+      "id": "id-mv34olai-boudfb",
+      "title": "Susi",
+      "marker": "patrones/marcador-01.patt",
+      "model": "modelos/marcador-01.glb",
+      "xCm": 0,
+      "yCm": 2,
+      "zCm": -1.5,
+      "sizeCm": 9.5,
+      "rotationDeg": -25,
+      "animation": "spin"
+    },
+    {
+      "id": "id-mv34sgmx-s6f4bq",
+      "title": "Rosi",
+      "marker": "patrones/marcador-02.patt",
+      "model": "modelos/marcador-02.glb",
+      "xCm": 0,
+      "yCm": 0,
+      "zCm": 0,
+      "sizeCm": 8.5,
+      "rotationDeg": 70,
+      "animation": "float"
+    },
+    {
+      "id": "id-mv34t6be-khqst1",
+      "title": "Ico",
+      "marker": "patrones/marcador-03.patt",
+      "model": "modelos/marcador-03.glb",
+      "xCm": 0,
+      "yCm": 0,
+      "zCm": 0,
+      "sizeCm": 8,
+      "rotationDeg": 40,
+      "animation": "pulse"
+    }
+  ]
+}
