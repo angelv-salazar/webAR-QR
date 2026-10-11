@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Estudio WebAR — Editor de recorridos</title>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ar-js-org/marker-creator@0.1.0/dist/marker-creator.umd.js"></script>
 <script type="importmap">
 {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.164.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.164.0/examples/jsm/"}}
 </script>
@@ -44,6 +46,21 @@ small,.muted{font-size:12px;line-height:1.5;color:var(--muted)}.divider{border-t
 #status.error{background:#663333;color:#fff1f1}
 #sizeValue{font-variant-numeric:tabular-nums}
 .pill{color:#63796c;background:#f1f7f3;font-size:11px;padding:4px 7px;border-radius:5px}
+.sessionQRBox{display:flex;gap:12px;align-items:center;border:1px solid #d6e3dc;background:#f2f9f5;border-radius:9px;padding:10px;margin-top:13px}
+#sessionQR{width:100px;height:100px;flex:none;image-rendering:pixelated;border:5px solid #fff}
+.sessionQRInfo{min-width:0;overflow-wrap:anywhere;font-size:12px;line-height:1.5}
+.sessionQRInfo strong{font-size:13px}
+#sessionQRText{font:11px/1.45 ui-monospace,monospace;overflow-wrap:anywhere;margin:4px 0}
+.markerMaker{margin-top:14px;border:1px solid #cfe0d7;background:#f5faf7;padding:12px;border-radius:10px}
+#finalCanvas{display:block;width:100%;max-width:380px;height:auto;margin:13px auto;border:1px solid #d9e3dd;background:#fff}
+#markerBuildResult[hidden]{display:none!important}
+#printSheet{display:none}
+@media print{
+ @page{size:A4 portrait;margin:15mm}
+ body>header,body>main,body>footer{display:none!important}
+ #printSheet{display:block!important;margin:0;padding:0}
+ #printSheet img{display:block;width:150mm;height:150mm;max-width:none}
+}
 .qualityBox{font-size:12px;line-height:1.5;margin:10px 0 0;padding:10px;border:1px solid #d1dbd6;background:#f7faf9;color:#325044;border-radius:8px;white-space:pre-line}
 .qualityBox.invalid{border-color:#e5b0a9;background:#fff2f0;color:#8c2922}
 .qualityBox.warning{border-color:#e7ce8e;background:#fff9e6;color:#74520c}
@@ -58,7 +75,7 @@ footer{max-width:1490px;margin:4px auto 30px;padding:0 19px;font-size:12px;color
 <body>
 <header>
 <div><h1>Estudio WebAR</h1><p>Editor de recorridos · modelos GLB · marcadores · vista previa 3D</p></div>
-<div class="tag">Etapa 1 · guardado local</div>
+<div class="tag">Etapa 2 · Marcadores integrados</div>
 </header>
 <main>
 <section class="card" id="markerCard">
@@ -66,6 +83,15 @@ footer{max-width:1490px;margin:4px auto 30px;padding:0 19px;font-size:12px;color
 <label for="sessionSelect">Elegir recorrido</label><select id="sessionSelect"><option value="">Nuevo recorrido sin guardar</option></select>
 <label for="sessionName">Nombre del recorrido</label><input id="sessionName" value="Mi primer recorrido AR" maxlength="75">
 <label for="sessionDesc">Descripción (opcional)</label><textarea id="sessionDesc" rows="2" placeholder="Ej.: Recorrido de entidades digitales en el espacio expositivo"></textarea>
+<div id="sessionQRBox" class="sessionQRBox">
+  <canvas id="sessionQR" width="132" height="132" aria-label="QR del recorrido, reservado hasta publicar"></canvas>
+  <div class="sessionQRInfo">
+    <strong>QR de este recorrido</strong>
+    <div id="sessionQRText" class="muted">Preparando enlace…</div>
+    <div class="muted">Se asigna automáticamente al crear el recorrido. Será el mismo en todos sus marcadores.</div>
+    <div class="pill" style="margin-top:8px;display:inline-block">Borrador · falta publicar</div>
+  </div>
+</div>
 <div class="row stretch" style="margin-top:12px">
 <button class="btn secondary" id="newSession">+ Nuevo</button>
 <button class="btn" id="saveSession">Guardar recorrido</button>
@@ -90,12 +116,25 @@ footer{max-width:1490px;margin:4px auto 30px;padding:0 19px;font-size:12px;color
 <label for="entryPattern">Patrón de reconocimiento</label>
 <select id="entryPattern"><option value="hiro">Hiro (incluido)</option><option value="kanji">Kanji (incluido)</option><option value="custom">Personalizado (.patt)</option></select>
 <div id="customPattern" hidden>
+<details id="manualPattern"><summary class="muted">Importar un .patt existente (opcional)</summary>
 <label for="pattFile">Archivo .patt del marcador</label><input id="pattFile" type="file" accept=".patt,text/plain">
+</details>
 <label for="markerImage">Imagen del marcador (PNG, JPG o WebP)</label><input id="markerImage" type="file" accept="image/png,image/jpeg,image/webp">
 <p class="muted">Formato cuadrado 1:1 · mínimo 512 × 512 px · recomendado 1024 × 1024 px · máximo 10 MB.</p>
 <div id="markerQuality" class="qualityBox" aria-live="polite">Cargá una imagen para analizar su calidad.</div>
 <button class="btn secondary" id="revalidateImage" type="button" style="margin-top:7px">Analizar imagen guardada</button>
-<p class="muted">Es necesario un patrón diferente para cada marcador. La personalización y generación automática vendrán en la siguiente etapa.</p>
+<div class="markerMaker">
+<button class="btn" id="buildMarker" type="button" style="width:100%">Generar marcador final</button>
+<div id="markerBuildInfo" class="muted" role="status" style="margin-top:9px">Primero cargá una imagen válida. El QR quedará en la esquina inferior derecha sin opciones adicionales.</div>
+<div id="markerBuildResult" hidden>
+<canvas id="finalCanvas" width="1800" height="1800" aria-label="Marcador imprimible con QR incluido"></canvas>
+<div class="row stretch" style="margin-top:10px">
+<button class="btn secondary" id="downloadMarkerFiles" type="button">Descargar PNG + .patt</button>
+<button class="btn secondary" id="printMarker" type="button">Imprimir 15 × 15 cm</button>
+</div>
+</div>
+</div>
+<p class="muted">El QR está dentro de la imagen que se utiliza para generar el .patt. Los patrones deben probarse impresos antes de publicar el recorrido.</p>
 </div>
 <label for="modelFile">Modelo 3D (.glb)</label>
 <input type="file" id="modelFile" accept=".glb,model/gltf-binary,application/octet-stream">
@@ -132,9 +171,11 @@ footer{max-width:1490px;margin:4px auto 30px;padding:0 19px;font-size:12px;color
 <div class="note" style="margin-top:14px">Siguiente etapa: crear marcadores únicos con QR, exportarlos a escala real de 15 × 15 cm y conectar el botón de publicación del recorrido.</div>
 </section>
 </main>
-<footer>Estudio WebAR · prototipo de edición. Los modelos cargados no se envían a ningún servidor al guardarlos; permanecen en el almacenamiento local del navegador. Para compartir un recorrido con visitantes deberemos publicarlo posteriormente.</footer>
+<footer>Estudio WebAR · los recorridos y modelos se guardan localmente. El QR se reserva al crear el recorrido, pero el enlace solo funcionará como experiencia AR cuando publiques sus archivos.</footer>
+<div id="printSheet"><img id="printImage" alt="Marcador a imprimir con tamaño físico de 15 × 15 cm"></div>
 <script type="module">
 import {inspectMarkerImage,compareFingerprints,checkPatt} from './marker-validation.js';
+import {routeURL,makeQR,composeMarker,MARKER_RATIO} from './marker-composer.js';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
@@ -191,7 +232,7 @@ controls.update();renderer.render(scene,cam);
 }renderLoop();
 function uid(){return 'id-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8)}
 function newEntry(index){
-return {id:uid(),name:'Marcador '+String(index+1).padStart(2,'0'),kind:index===0?'hiro':index===1?'kanji':'custom',
+return {id:uid(),name:'Marcador '+String(index+1).padStart(2,'0'),kind:'custom',
 modelBlob:null,modelName:'',pattText:'',markerImageBlob:null,x:0,y:0,z:0,size:12,rotation:0,animation:'none'};
 }
 function newSession(){
@@ -225,9 +266,24 @@ const opt=document.createElement('option');opt.value='';opt.textContent='Elegí 
 for(const item of items){const o=document.createElement('option');o.value=item.id;o.textContent=item.name;sel.appendChild(o)}
 sel.value=items.some(it=>it.id===session?.id)?session.id:'';
 }
+let qrSessionRender=0;
+async function showSessionQR(){
+ const token=++qrSessionRender,id=session?.id;
+ if(!id)return;
+ $('sessionQRText').textContent=routeURL(id);
+ try{
+   const canvas=await makeQR(routeURL(id),256);
+   if(token!==qrSessionRender)return;
+   const preview=$('sessionQR'),ctx=preview.getContext('2d');
+   ctx.clearRect(0,0,preview.width,preview.height);ctx.drawImage(canvas,0,0,preview.width,preview.height);
+ }catch(error){
+   if(token===qrSessionRender)$('sessionQRText').textContent='QR no disponible: '+error.message;
+ }
+}
 function setSession(data){
 session=data;activeId=session.entries[0]?.id||null;
 $('sessionName').value=session.name;$('sessionDesc').value=session.description||'';
+void showSessionQR();
 clean();drawList();populate();void showPreview();refreshSessions().catch(()=>{});
 }
 function drawList(){
@@ -237,7 +293,7 @@ session.entries.forEach((entry,i)=>{
 const button=document.createElement('button');button.type='button';
 button.className='entry'+(entry.id===activeId?' active':'');
 const title=document.createElement('strong');title.textContent=(i+1)+'. '+entry.name;
-const sub=document.createElement('span');sub.textContent=(entry.kind==='custom'?'Patrón propio':entry.kind==='hiro'?'Hiro':'Kanji')+' · '+(entry.modelName||'GLB pendiente');
+const sub=document.createElement('span');sub.textContent=(entry.kind==='custom'?'Patrón propio':entry.kind==='hiro'?'Hiro':'Kanji')+' · '+(entry.modelName||'GLB pendiente')+(entry.finalMarkerBlob?' · diseño generado':'');
 button.append(title,sub);
 button.onclick=()=>{activeId=entry.id;drawList();populate();void showPreview()};
 root.appendChild(button);
@@ -285,6 +341,7 @@ $('customPattern').hidden=e.kind!=='custom';
 $('modelFile').value='';$('pattFile').value='';$('markerImage').value='';
 $('fileName').textContent=e.modelName?('Cargado: '+e.modelName):'Sin archivo GLB. El visor muestra una figura de referencia.';
 describeMarkerQuality(e);
+void showMarkerResult(e);
 $('posX').value=e.x;$('posY').value=e.y;$('posZ').value=e.z;$('modelSize').value=e.size;
 $('rotationY').value=e.rotation;$('animation').value=e.animation;
 $('sizeValue').textContent=e.size+' cm';$('rotValue').textContent=e.rotation+'°';
@@ -370,7 +427,7 @@ $('previewStatus').textContent=e.modelBlob?('Vista previa: '+e.modelName):'Figur
 async function downloadExport(){
 if(!session)return;
 if(typeof JSZip==='undefined')throw Error('No se pudo cargar JSZip.');
-const zip=new JSZip(),manifest={format:'estudio-webar-v1',id:session.id,name:session.name,description:session.description,createdAt:session.createdAt,entries:[]};
+const zip=new JSZip(),manifest={format:'estudio-webar-v2',id:session.id,name:session.name,description:session.description,createdAt:session.createdAt,publicUrl:routeURL(session.id),published:false,entries:[]};
 for(const [i,e] of session.entries.entries()){
 const id='marcador-'+String(i+1).padStart(2,'0');
 const entry={id:e.id,name:e.name,kind:e.kind,x:e.x,y:e.y,z:e.z,size:e.size,rotation:e.rotation,animation:e.animation,model:'',patt:'',image:'',
@@ -378,11 +435,12 @@ const entry={id:e.id,name:e.name,kind:e.kind,x:e.x,y:e.y,z:e.z,size:e.size,rotat
   warnings:e.markerValidation.warnings,errors:e.markerValidation.errors}:null};
 if(e.modelBlob){entry.model='modelos/'+id+'.glb';zip.file(entry.model,e.modelBlob);}
 if(e.kind==='custom'&&e.pattText){entry.patt='patrones/'+id+'.patt';zip.file(entry.patt,e.pattText);}
+if(e.kind==='custom'&&e.finalMarkerBlob){entry.print='marcadores/'+id+'-15cm.png';entry.patternRatio=e.markerRatio||MARKER_RATIO;zip.file(entry.print,e.finalMarkerBlob);}
 if(e.kind==='custom'&&e.markerImageBlob){entry.image='patrones/'+id+'-imagen.'+(e.markerImageBlob.type==='image/svg+xml'?'svg':e.markerImageBlob.type==='image/jpeg'?'jpg':'png');zip.file(entry.image,e.markerImageBlob);}
 manifest.entries.push(entry);
 }
 zip.file('recorrido.json',JSON.stringify(manifest,null,2));
-zip.file('LEEME.txt','Este ZIP es un respaldo del editor Estudio WebAR.\nContiene tu recorrido, ajustes de transformación y modelos GLB.\nTodavía no es una publicación lista para visitantes: faltan la generación de marcadores y el despliegue web.\n');
+zip.file('LEEME.txt','Respaldo de Estudio WebAR.\nContiene modelos, configuraciones y los marcadores finales disponibles.\nLos QR enlazan al identificador reservado del recorrido: '+routeURL(session.id)+'\nATENCION: el recorrido NO ESTÁ PUBLICADO todavía. El QR mostrará una página de aviso hasta completar la publicación.\n');
 const output=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
 const url=URL.createObjectURL(output),a=document.createElement('a');
 a.href=url;a.download=(session.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,'-').toLowerCase()||'recorrido')+'.zip';
@@ -402,11 +460,11 @@ $('addEntry').onclick=()=>{
 if(session.entries.length>=20){inform('Para esta primera versión admitimos hasta 20 marcadores por recorrido.',true);return;}
 const e=newEntry(session.entries.length);
 session.entries.push(e);activeId=e.id;markDirty();drawList();populate();void showPreview();
-inform('Marcador creado. A partir del tercero seleccionamos patrón personalizado; en la siguiente etapa automatizaremos su generación.');
+inform('Marcador agregado. Cargá una imagen propia, comprobá su validez y presioná «Generar marcador final». Todos los marcadores compartirán el QR del recorrido.');
 };
 $('duplicateEntry').onclick=()=>{
 const e=selectedEntry();if(!e)return;
-const copy={...e,id:uid(),name:e.name+' (copia)',kind:'custom',pattText:'',markerImageBlob:null};
+const copy={...e,id:uid(),name:e.name+' (copia)',kind:'custom',pattText:'',markerImageBlob:null,markerValidation:null,finalMarkerBlob:null,markerRatio:null};
 session.entries.push(copy);activeId=copy.id;markDirty();drawList();populate();void showPreview();
 inform('Configuración duplicada. Debés asignar un patrón espacial único al nuevo marcador.');
 };
@@ -459,6 +517,8 @@ async function validateMarkerUpload(file,entry,replace=true){
    entry.markerValidation=report;
    // El .patt anterior ya no corresponde necesariamente a la nueva imagen.
    entry.pattText='';
+   entry.finalMarkerBlob=null;
+   entry.markerRatio=null;
    markDirty();drawList();
  }else{entry.markerValidation=report;markDirty();}
  if(selectedEntry()?.id===entry.id){
@@ -487,7 +547,7 @@ catch(error){inform('No se pudo guardar: '+error.message,true)}
 };
 $('newSession').onclick=()=>{
 if(dirty&&!confirm('Hay cambios sin guardar. ¿Crear otro recorrido de todos modos?'))return;
-setSession(newSession());inform('Nuevo recorrido creado. Completá sus marcadores y presioná «Guardar recorrido».');
+setSession(newSession());inform('Nuevo recorrido creado con QR propio y URL reservada. Cargá una imagen por marcador y generá sus diseños. Publicaremos el enlace en una próxima etapa.');
 };
 $('sessionSelect').onchange=async e=>{
 const id=e.target.value;
