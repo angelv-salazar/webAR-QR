@@ -70,6 +70,82 @@ small,.muted{font-size:12px;line-height:1.5;color:var(--muted)}.divider{border-t
 footer{max-width:1490px;margin:4px auto 30px;padding:0 19px;font-size:12px;color:#72817b}
 @media(max-width:1170px){main{grid-template-columns:300px minmax(0,1fr)}#viewerCard{grid-column:2;grid-row:1/span 2}#markerCard{grid-column:1}}
 @media(max-width:800px){header{padding:14px 15px}main{grid-template-columns:1fr;padding:12px}#viewerCard{grid-column:auto;grid-row:auto}#preview{height:400px;min-height:270px}.card{padding:13px}}
+/* Etapa de diseño: siempre mostrar los controles junto al modelo 3D */
+main{
+  grid-template-columns:minmax(240px,285px) minmax(300px,345px) minmax(520px,1fr);
+  gap:15px;
+}
+#viewerCard{
+  position:sticky;
+  top:12px;
+  align-self:start;
+  max-height:calc(100dvh - 24px);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  box-shadow:0 5px 24px rgba(19,53,41,.065);
+}
+.viewerHeading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex:none;margin-bottom:13px}
+.viewerHeading h2{margin:0 0 4px}
+.viewerHeading p{margin:0}
+.viewerHeading .pill{flex:none}
+.viewerWorkspace{
+  display:grid;
+  grid-template-columns:minmax(0,1.2fr) minmax(240px,.8fr);
+  gap:14px;
+  min-height:0;
+  align-items:start;
+}
+.viewerStage{min-width:0}
+.stageLabel{font-size:11px;color:#5a6b63;margin:0 0 8px}
+#preview{
+  height:clamp(285px,49dvh,475px);
+  min-height:0;
+  touch-action:none;
+}
+#previewTools{margin-top:10px}
+.viewerFootnote{color:#677a72;font-size:11px;line-height:1.45;margin:9px 0 0}
+.transformDock{
+  display:flex;flex-direction:column;min-width:0;min-height:0;
+  max-height:calc(100dvh - 142px);
+  padding:12px;border:1px solid #d2e2d9;border-radius:10px;background:#f8fbf9;
+}
+.dockHeading{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:13px;flex:none;margin-bottom:4px}
+.transformScroll{min-height:0;overflow:auto;overscroll-behavior:contain;padding-right:3px;scrollbar-width:thin;scrollbar-color:#9dbbb0 transparent}
+.transformScroll h3{font-size:12px;margin:12px 0 3px}
+.transformScroll label{font-size:11px;margin:9px 0 4px}
+.transformScroll input:not([type=range]),.transformScroll select{padding:8px 6px}
+.transformScroll input[type=range]{margin:4px 0}
+.transformScroll .metrics{gap:6px}
+.dockFootnote{font-size:11px;color:#65766e;line-height:1.35;padding-top:9px;border-top:1px solid #dae6de;margin:12px 0 0;flex:none}
+@media(max-width:1230px){
+  main{grid-template-columns:minmax(250px,300px) minmax(0,1fr)}
+  #markerCard{grid-column:1;grid-row:1}
+  #settingsCard{grid-column:1;grid-row:2}
+  #viewerCard{grid-column:2;grid-row:1 / span 3}
+}
+@media(max-width:900px){
+  main{grid-template-columns:minmax(220px,255px) minmax(0,1fr)}
+  .viewerWorkspace{grid-template-columns:minmax(0,1fr) minmax(205px,.8fr);gap:10px}
+  .transformDock{padding:9px}
+  #preview{height:clamp(230px,43dvh,390px)}
+}
+@media(max-width:780px){
+  main{display:flex;flex-direction:column;padding:12px}
+  #markerCard,#settingsCard,#viewerCard{width:100%}
+  #viewerCard{position:relative;top:auto;max-height:none;overflow:visible;order:1}
+  #markerCard{order:0}
+  #settingsCard{order:2}
+  .viewerWorkspace{grid-template-columns:minmax(0,1fr);gap:10px}
+  .transformDock{max-height:none}
+  .transformScroll{overflow:visible}
+  #preview{height:clamp(280px,45dvh,410px)}
+}
+@media(max-height:690px) and (min-width:781px){
+  #preview{height:clamp(210px,38dvh,310px)}
+  .transformDock{max-height:calc(100dvh - 125px)}
+}
+
 </style>
 </head>
 <body>
@@ -109,7 +185,7 @@ footer{max-width:1490px;margin:4px auto 30px;padding:0 19px;font-size:12px;color
 <div id="status">Preparando editor…</div>
 </section>
 <section class="card" id="settingsCard">
-<h2>3. Configurar objeto y marcador</h2>
+<h2>3. Imagen, QR y modelo GLB</h2>
 <p id="selectedHint" class="muted">Seleccioná un marcador.</p>
 <div id="entryEditor">
 <label for="entryName">Nombre del marcador / objeto</label><input id="entryName" placeholder="Ej.: Micelio 01" maxlength="75">
@@ -139,8 +215,37 @@ footer{max-width:1490px;margin:4px auto 30px;padding:0 19px;font-size:12px;color
 <label for="modelFile">Modelo 3D (.glb)</label>
 <input type="file" id="modelFile" accept=".glb,model/gltf-binary,application/octet-stream">
 <p id="fileName" class="muted">Sin archivo GLB. El visor muestra una figura de referencia.</p>
-<div class="divider"></div>
-<h3>Posición respecto del marcador de 15 × 15 cm</h3>
+<div class="row stretch" style="margin-top:14px">
+<button id="duplicateEntry" class="btn secondary">Duplicar configuración</button>
+<button id="removeEntry" class="btn warn">Quitar marcador</button>
+</div>
+</div>
+</section>
+<section class="card" id="viewerCard">
+  <div class="viewerHeading">
+    <div>
+      <h2>4. Vista previa y transformación</h2>
+      <p class="muted">Los cambios se aplican al instante. El cuadrado del visor representa un marcador de <strong>15 × 15 cm</strong>.</p>
+    </div>
+    <span class="pill" aria-label="Visualización interactiva">En vivo</span>
+  </div>
+  <div class="viewerWorkspace">
+    <div class="viewerStage">
+      <div class="stageLabel">Vista 3D · Arrastrá para girar y usá la rueda para acercarte</div>
+      <div id="preview"><div id="previewStatus">Cargando Three.js…</div></div>
+      <div id="previewTools">
+        <button id="resetView" class="btn secondary">Recentrar vista</button>
+        <button id="playToggle" class="btn secondary">Pausar animación</button>
+      </div>
+      <p class="viewerFootnote">El tamaño se calcula sobre la dimensión máxima del GLB. X y Z desplazan el objeto sobre el marcador; Y modifica la altura.</p>
+    </div>
+    <aside class="transformDock" aria-label="Controles de transformación">
+      <div class="dockHeading">
+        <strong>Transformar objeto</strong>
+        <span class="pill">cm · grados</span>
+      </div>
+      <div class="transformScroll">
+        <h3>Posición · marcador 15 × 15 cm</h3>
 <div class="metrics">
 <div><label for="posX">X · cm</label><input id="posX" type="number" step=".5" min="-60" max="60" value="0"></div>
 <div><label for="posY">Altura · cm</label><input id="posY" type="number" step=".5" min="-20" max="60" value="0"></div>
@@ -153,22 +258,11 @@ footer{max-width:1490px;margin:4px auto 30px;padding:0 19px;font-size:12px;color
 <div class="row" style="justify-content:space-between"><span class="muted">−180°</span><span id="rotValue" class="pill">0°</span><span class="muted">180°</span></div>
 <label for="animation">Animación</label>
 <select id="animation"><option value="none">Ninguna</option><option value="spin">Rotación continua</option><option value="float">Flotar suavemente</option><option value="pulse">Pulsación de escala</option><option value="embedded">Animación incluida en el GLB (si existe)</option></select>
-<div class="row stretch" style="margin-top:14px">
-<button id="duplicateEntry" class="btn secondary">Duplicar configuración</button>
-<button id="removeEntry" class="btn warn">Quitar marcador</button>
-</div>
-</div>
-</section>
-<section class="card" id="viewerCard">
-<h2>4. Vista previa 3D</h2>
-<p class="muted">La base cuadrada representa un marcador físico de <strong>15 × 15 cm</strong>. Girá la vista con el mouse y usá los controles de posición, tamaño y animación para modificar el objeto en tiempo real.</p>
-<div id="preview"><div id="previewStatus">Cargando Three.js…</div></div>
-<div id="previewTools">
-<button id="resetView" class="btn secondary">Recentrar vista</button>
-<button id="playToggle" class="btn secondary">Pausar animación</button>
-</div>
-<p class="muted" style="margin-top:12px">La dimensión del modelo se normaliza según su caja geométrica, para que “12 cm” corresponda a la medida de su lado más largo. Los desplazamientos X y Z se realizan sobre el plano del marcador; Y es la altura.</p>
-<div class="note" style="margin-top:14px">Siguiente etapa: crear marcadores únicos con QR, exportarlos a escala real de 15 × 15 cm y conectar el botón de publicación del recorrido.</div>
+
+      </div>
+      <p class="dockFootnote">Los cambios se guardan cuando presionás «Guardar recorrido».</p>
+    </aside>
+  </div>
 </section>
 </main>
 <footer>Estudio WebAR · los recorridos y modelos se guardan localmente. El QR se reserva al crear el recorrido, pero el enlace solo funcionará como experiencia AR cuando publiques sus archivos.</footer>
