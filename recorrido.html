@@ -70,6 +70,8 @@
     let trackingReady=false,frameId=0,lastDetect=0,lastStatus=0,started=false;
     let lastError='',lastLayout='',fillViewport=true,lastVisibleText='';
     const scene=new THREE.Scene();
+    // Modo opcional de calibración: no altera la experiencia pública normal.
+    const calibrationMode=new URLSearchParams(location.search).get('calibrar')==='1';
 
     function constraints(){
       // Coincide con "Sin restricciones de tamaño" del laboratorio.
@@ -113,7 +115,9 @@
       const visibleFraction=Math.min(srcAspect/dstAspect,dstAspect/srcAspect);
       const visible=activeMarkers.filter(row=>row.root.visible && row.ready);
       if(trackingReady){
-        const summary=visible.length?visible.map(row=>row.entry.title).join(' · '):'Apuntá a cualquiera de los marcadores del recorrido';
+        const summary=calibrationMode
+          ? (visible.length?'Cubo de referencia · 15 × 15 × 15 cm':'CALIBRACIÓN · Apuntá a un marcador')
+          : (visible.length?visible.map(row=>row.entry.title).join(' · '):'Apuntá a cualquiera de los marcadores del recorrido');
         if(summary!==lastVisibleText){lastVisibleText=summary;instruction.textContent=summary;}
       }
       const readyCount=activeMarkers.filter(row=>row.ready).length;
@@ -348,9 +352,38 @@
           });
         }
         trackingReady=true;
-        instruction.textContent='Cargando modelos 3D de la colección…';
         start.style.display='none';
-        loadModels().then(()=>{status()}).catch(e=>{lastError=e.message;status()});
+        if(calibrationMode){
+          // Cubo de 1 unidad por lado: equivale a 15 × 15 × 15 cm en este recorrido.
+          // Referencia ortogonal para distinguir deformación de perspectiva y geometría.
+          for(const row of activeMarkers){
+            const wireframe=new THREE.LineSegments(
+              new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)),
+              new THREE.LineBasicMaterial({color:0x39ffcf,depthTest:false})
+            );
+            wireframe.position.y=.5;
+            row.root.add(wireframe);
+            const axes=new THREE.AxesHelper(1);
+            row.root.add(axes);
+            // Perímetro de la base: 15 × 15 cm, coincidente con el marcador impreso.
+            const outline=new THREE.LineLoop(
+              new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(-.5,.01,-.5),
+                new THREE.Vector3(.5,.01,-.5),
+                new THREE.Vector3(.5,.01,.5),
+                new THREE.Vector3(-.5,.01,.5)
+              ]),
+              new THREE.LineBasicMaterial({color:0xffe178,depthTest:false})
+            );
+            row.root.add(outline);
+            row.ready=true;
+          }
+          info.hidden=false;
+          instruction.textContent='CALIBRACIÓN · Cubo 15 × 15 × 15 cm';
+        }else{
+          instruction.textContent='Cargando modelos 3D de la colección…';
+          loadModels().then(()=>{status()}).catch(e=>{lastError=e.message;status()});
+        }
         status();
         frameId=requestAnimationFrame(runLoop);
       }catch(error){
