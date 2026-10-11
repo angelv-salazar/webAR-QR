@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Estudio WebAR — Editor de recorridos</title>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.164.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.164.0/examples/jsm/"}}
+</script>
+<style>
+:root{color-scheme:light;--bg:#f3f5f4;--ink:#172526;--muted:#647272;--line:#d9e1dd;--green:#236c57}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px}
+button,input,select,textarea{font:inherit}button{cursor:pointer}
+header{background:#fff;border-bottom:1px solid var(--line);padding:17px max(18px,calc((100vw - 1450px)/2));display:flex;align-items:center;justify-content:space-between;gap:15px}
+header h1{margin:0;font-size:20px;letter-spacing:-.4px}header p{font-size:12px;color:var(--muted);margin:5px 0 0}
+.tag{font-size:11px;color:var(--green);background:#e4f3eb;border:1px solid #cee7db;padding:6px 10px;border-radius:40px;white-space:nowrap}
+main{max-width:1490px;margin:auto;padding:18px;display:grid;grid-template-columns:minmax(250px,310px) minmax(270px,1fr) minmax(350px,1.2fr);gap:15px;align-items:start}
+.card{background:#fff;border:1px solid var(--line);border-radius:13px;padding:16px;min-width:0}
+h2{font-size:15px;margin:0 0 14px}h3{font-size:13px;margin:0 0 9px}
+label{display:block;font-size:12px;color:#536564;font-weight:650;margin:12px 0 5px}
+input:not([type=file]):not([type=range]),select,textarea{width:100%;padding:10px;border:1px solid #bdccc6;background:white;color:var(--ink);border-radius:8px;min-width:0}
+input[type=file]{width:100%;font-size:12px;max-width:100%}
+input[type=range]{width:100%;accent-color:var(--green)}
+small,.muted{font-size:12px;line-height:1.5;color:var(--muted)}.divider{border-top:1px solid var(--line);margin:17px 0}
+.btn{padding:10px 12px;border-radius:8px;border:1px solid var(--green);background:var(--green);color:#fff;font-weight:650;font-size:12px}
+.btn.secondary{background:white;color:var(--ink);border-color:#b9ccc4}.btn.warn{background:white;color:#9b3333;border-color:#e7c4c4}
+.btn:disabled{cursor:default;opacity:.48}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.row>*{min-width:0}
+.row.stretch>*{flex:1}.row button{flex:1}
+#entryList{display:flex;flex-direction:column;gap:7px;margin:12px 0}
+.entry{width:100%;text-align:left;border:1px solid var(--line);border-radius:9px;background:#fafcfb;padding:11px;color:var(--ink)}
+.entry.active{background:#eaf5f0;border-color:#7abb9e}
+.entry strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.entry span{display:block;margin-top:5px;font-size:11px;color:#60736c}
+#preview{position:relative;height:min(56vh,500px);min-height:320px;background:radial-gradient(circle at 50% 40%,#e0e8e7,#b6c6c1);border-radius:10px;overflow:hidden}
+#preview canvas{display:block;width:100%;height:100%}
+#previewStatus{position:absolute;bottom:12px;left:12px;right:12px;background:#14231eec;color:#fff;padding:8px 11px;border-radius:7px;font-size:12px;pointer-events:none}
+#previewTools{margin-top:12px;display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+#previewTools .btn{flex:1}.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.metrics label{margin-top:8px}.metrics input{width:100%}
+.note{background:#edf4f0;border-radius:9px;padding:11px;color:#31564a;font-size:12px;line-height:1.5}
+#status{padding:10px 12px;background:#172c28;color:#e0f7e9;border-radius:9px;font-size:12px;line-height:1.5;margin-top:12px;white-space:pre-wrap}
+#status.error{background:#663333;color:#fff1f1}
+#sizeValue{font-variant-numeric:tabular-nums}
+.pill{color:#63796c;background:#f1f7f3;font-size:11px;padding:4px 7px;border-radius:5px}
+#selectedHint{margin:0 0 8px}
+#fileName{margin-top:5px;overflow-wrap:anywhere}
+footer{max-width:1490px;margin:4px auto 30px;padding:0 19px;font-size:12px;color:#72817b}
+@media(max-width:1170px){main{grid-template-columns:300px minmax(0,1fr)}#viewerCard{grid-column:2;grid-row:1/span 2}#markerCard{grid-column:1}}
+@media(max-width:800px){header{padding:14px 15px}main{grid-template-columns:1fr;padding:12px}#viewerCard{grid-column:auto;grid-row:auto}#preview{height:400px;min-height:270px}.card{padding:13px}}
+</style>
+</head>
+<body>
+<header>
+<div><h1>Estudio WebAR</h1><p>Editor de recorridos · modelos GLB · marcadores · vista previa 3D</p></div>
+<div class="tag">Etapa 1 · guardado local</div>
+</header>
+<main>
+<section class="card" id="markerCard">
+<h2>1. Recorridos</h2>
+<label for="sessionSelect">Elegir recorrido</label><select id="sessionSelect"><option value="">Nuevo recorrido sin guardar</option></select>
+<label for="sessionName">Nombre del recorrido</label><input id="sessionName" value="Mi primer recorrido AR" maxlength="75">
+<label for="sessionDesc">Descripción (opcional)</label><textarea id="sessionDesc" rows="2" placeholder="Ej.: Recorrido de entidades digitales en el espacio expositivo"></textarea>
+<div class="row stretch" style="margin-top:12px">
+<button class="btn secondary" id="newSession">+ Nuevo</button>
+<button class="btn" id="saveSession">Guardar recorrido</button>
+</div>
+<div class="row stretch" style="margin-top:8px">
+<button class="btn secondary" id="exportSession">Exportar ZIP</button>
+<button class="btn warn" id="deleteSession">Eliminar</button>
+</div>
+<div class="divider"></div>
+<h2>2. Marcadores del recorrido <span class="pill" id="count">0</span></h2>
+<p class="muted">Cada marcador podrá mostrar un objeto distinto sin cerrar la cámara. Todos los QR de un mismo recorrido abrirán la misma URL.</p>
+<div id="entryList"></div>
+<button class="btn secondary" id="addEntry" style="width:100%">+ Agregar marcador</button>
+<div class="note" style="margin-top:14px">El recorrido se guarda en este navegador mediante IndexedDB. Aún no se publica en GitHub. Exportá un ZIP para conservar una copia de seguridad.</div>
+<div id="status">Preparando editor…</div>
+</section>
+<section class="card" id="settingsCard">
+<h2>3. Configurar objeto y marcador</h2>
+<p id="selectedHint" class="muted">Seleccioná un marcador.</p>
+<div id="entryEditor">
+<label for="entryName">Nombre del marcador / objeto</label><input id="entryName" placeholder="Ej.: Micelio 01" maxlength="75">
+<label for="entryPattern">Patrón de reconocimiento</label>
+<select id="entryPattern"><option value="hiro">Hiro (incluido)</option><option value="kanji">Kanji (incluido)</option><option value="custom">Personalizado (.patt)</option></select>
+<div id="customPattern" hidden>
+<label for="pattFile">Archivo .patt del marcador</label><input id="pattFile" type="file" accept=".patt,text/plain">
+<label for="markerImage">Imagen del marcador (PNG, SVG o JPG)</label><input id="markerImage" type="file" accept="image/png,image/svg+xml,image/jpeg">
+<p class="muted">Es necesario un patrón diferente para cada marcador. La personalización y generación automática vendrán en la siguiente etapa.</p>
+</div>
+<label for="modelFile">Modelo 3D (.glb)</label>
+<input type="file" id="modelFile" accept=".glb,model/gltf-binary,application/octet-stream">
+<p id="fileName" class="muted">Sin archivo GLB. El visor muestra una figura de referencia.</p>
+<div class="divider"></div>
+<h3>Posición respecto del marcador de 15 × 15 cm</h3>
+<div class="metrics">
+<div><label for="posX">X · cm</label><input id="posX" type="number" step=".5" min="-60" max="60" value="0"></div>
+<div><label for="posY">Altura · cm</label><input id="posY" type="number" step=".5" min="-20" max="60" value="0"></div>
+<div><label for="posZ">Z · cm</label><input id="posZ" type="number" step=".5" min="-60" max="60" value="0"></div>
+</div>
+<label for="modelSize">Tamaño del objeto · dimensión máxima: <strong id="sizeValue">12 cm</strong></label>
+<input id="modelSize" type="range" min="1" max="40" step=".5" value="12">
+<label for="rotationY">Rotación vertical · grados</label>
+<input id="rotationY" type="range" min="-180" max="180" step="5" value="0">
+<div class="row" style="justify-content:space-between"><span class="muted">−180°</span><span id="rotValue" class="pill">0°</span><span class="muted">180°</span></div>
+<label for="animation">Animación</label>
+<select id="animation"><option value="none">Ninguna</option><option value="spin">Rotación continua</option><option value="float">Flotar suavemente</option><option value="pulse">Pulsación de escala</option><option value="embedded">Animación incluida en el GLB (si existe)</option></select>
+<div class="row stretch" style="margin-top:14px">
+<button id="duplicateEntry" class="btn secondary">Duplicar configuración</button>
+<button id="removeEntry" class="btn warn">Quitar marcador</button>
+</div>
+</div>
+</section>
+<section class="card" id="viewerCard">
+<h2>4. Vista previa 3D</h2>
+<p class="muted">La base cuadrada representa un marcador físico de <strong>15 × 15 cm</strong>. Girá la vista con el mouse y usá los controles de posición, tamaño y animación para modificar el objeto en tiempo real.</p>
+<div id="preview"><div id="previewStatus">Cargando Three.js…</div></div>
+<div id="previewTools">
+<button id="resetView" class="btn secondary">Recentrar vista</button>
+<button id="playToggle" class="btn secondary">Pausar animación</button>
+</div>
+<p class="muted" style="margin-top:12px">La dimensión del modelo se normaliza según su caja geométrica, para que “12 cm” corresponda a la medida de su lado más largo. Los desplazamientos X y Z se realizan sobre el plano del marcador; Y es la altura.</p>
+<div class="note" style="margin-top:14px">Siguiente etapa: crear marcadores únicos con QR, exportarlos a escala real de 15 × 15 cm y conectar el botón de publicación del recorrido.</div>
+</section>
+</main>
+<footer>Estudio WebAR · prototipo de edición. Los modelos cargados no se envían a ningún servidor al guardarlos; permanecen en el almacenamiento local del navegador. Para compartir un recorrido con visitantes deberemos publicarlo posteriormente.</footer>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+
+const $=id=>document.getElementById(id);
+const dbName='estudio-webar-recorridos', storeName='sessions';
+let db=null,session=null,activeId=null,dirty=false,previewObject=null,currentGroup=null,previewToken=0,markerMaterial=null,markerTexture=null,mixer=null,play=true,loadError='';
+let markerPlane=null;
+const loader=new GLTFLoader();
+const scene=new THREE.Scene();scene.background=new THREE.Color(0xdce5e2);
+const cam=new THREE.PerspectiveCamera(45,1,.01,100);
+cam.position.set(1.35,1.2,1.55);
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.25;
+$('preview').prepend(renderer.domElement);
+const controls=new OrbitControls(cam,renderer.domElement);
+controls.enableDamping=true;controls.target.set(0,.16,0);
+controls.minDistance=.35;controls.maxDistance=6;
+scene.add(new THREE.HemisphereLight(0xffffff,0x637a6d,2.6));
+const light=new THREE.DirectionalLight(0xffffff,2.4);light.position.set(1.5,3,2);scene.add(light);
+scene.add(new THREE.GridHelper(2,20,0x7b9a90,0xaac2ba));
+markerMaterial=new THREE.MeshStandardMaterial({color:0xffffff,side:THREE.DoubleSide,roughness:1});
+markerPlane=new THREE.Mesh(new THREE.PlaneGeometry(1,1),markerMaterial);
+markerPlane.rotation.x=-Math.PI/2;markerPlane.position.y=.003;scene.add(markerPlane);
+const border=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1,.006,1)),new THREE.LineBasicMaterial({color:0x20453a}));
+scene.add(border);
+const fallback=new THREE.IcosahedronGeometry(.4,1);
+const clock=new THREE.Clock();
+let renderW=0,renderH=0;
+const resizeObserver=new ResizeObserver(()=>{
+const host=$('preview'),w=host.clientWidth,h=host.clientHeight;
+if(w===renderW&&h===renderH)return;
+renderW=w;renderH=h;cam.aspect=w/h;cam.updateProjectionMatrix();renderer.setSize(w,h,false);
+});resizeObserver.observe($('preview'));
+function renderLoop(){
+requestAnimationFrame(renderLoop);
+const dt=Math.min(clock.getDelta(),.05);
+if(currentGroup&&session){
+  const entry=selectedEntry();
+  if(entry&&play){
+    const t=performance.now()/1000;
+    if(entry.animation==='spin') currentGroup.rotation.y=THREE.MathUtils.degToRad(entry.rotation)+(t*.6);
+    else currentGroup.rotation.y=THREE.MathUtils.degToRad(entry.rotation);
+    currentGroup.position.y=entry.y/15+(entry.animation==='float'?.045*Math.sin(t*1.8):0);
+    const s=entry.animation==='pulse'?1+.12*Math.sin(t*2):1;
+    currentGroup.scale.setScalar(s);
+    if(entry.animation==='embedded'&&mixer)mixer.update(dt);
+  }
+}
+controls.update();renderer.render(scene,cam);
+}renderLoop();
+function uid(){return 'id-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8)}
+function newEntry(index){
+return {id:uid(),name:'Marcador '+String(index+1).padStart(2,'0'),kind:index===0?'hiro':index===1?'kanji':'custom',
+modelBlob:null,modelName:'',pattText:'',markerImageBlob:null,x:0,y:0,z:0,size:12,rotation:0,animation:'none'};
+}
+function newSession(){
+return {id:uid(),name:'Mi primer recorrido AR',description:'',createdAt:new Date().toISOString(),updatedAt:null,entries:[newEntry(0)]};
+}
+function selectedEntry(){return session?.entries.find(x=>x.id===activeId)||null}
+function inform(text,error=false){$('status').textContent=text;$('status').classList.toggle('error',error)}
+function markDirty(){dirty=true;$('saveSession').textContent='Guardar cambios ●';}
+function clean(){dirty=false;$('saveSession').textContent='Guardar recorrido'}
+function dbOpen(){
+return new Promise((resolve,reject)=>{
+const r=indexedDB.open(dbName,1);
+r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains(storeName))r.result.createObjectStore(storeName,{keyPath:'id'})};
+r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error||Error('No se pudo abrir el almacenamiento local'));
+});
+}
+function txn(mode,fn){
+return new Promise((resolve,reject)=>{
+const tx=db.transaction(storeName,mode),store=tx.objectStore(storeName),request=fn(store);
+request.onsuccess=()=>resolve(request.result);
+request.onerror=()=>reject(request.error||Error('Error de IndexedDB'));
+});
+}
+async function listSessions(){return await txn('readonly',s=>s.getAll())}
+async function sessionSave(){return await txn('readwrite',s=>s.put(session))}
+async function sessionRemove(id){return await txn('readwrite',s=>s.delete(id))}
+async function refreshSessions(){
+const items=(await listSessions()).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
+const sel=$('sessionSelect');sel.replaceChildren();
+const opt=document.createElement('option');opt.value='';opt.textContent='Elegí un recorrido…';sel.appendChild(opt);
+for(const item of items){const o=document.createElement('option');o.value=item.id;o.textContent=item.name;sel.appendChild(o)}
+sel.value=items.some(it=>it.id===session?.id)?session.id:'';
+}
+function setSession(data){
+session=data;activeId=session.entries[0]?.id||null;
+$('sessionName').value=session.name;$('sessionDesc').value=session.description||'';
+clean();drawList();populate();void showPreview();refreshSessions().catch(()=>{});
+}
+function drawList(){
+const root=$('entryList');root.replaceChildren();
+if(!session)return;
+session.entries.forEach((entry,i)=>{
+const button=document.createElement('button');button.type='button';
+button.className='entry'+(entry.id===activeId?' active':'');
+const title=document.createElement('strong');title.textContent=(i+1)+'. '+entry.name;
+const sub=document.createElement('span');sub.textContent=(entry.kind==='custom'?'Patrón propio':entry.kind==='hiro'?'Hiro':'Kanji')+' · '+(entry.modelName||'GLB pendiente');
+button.append(title,sub);
+button.onclick=()=>{activeId=entry.id;drawList();populate();void showPreview()};
+root.appendChild(button);
+});
+$('count').textContent=session.entries.length+' marcador(es)';
+}
+function populate(){
+const e=selectedEntry();
+$('entryEditor').hidden=!e;
+if(!e)return;
+$('selectedHint').textContent='Configurando: '+e.name;
+$('entryName').value=e.name;$('entryPattern').value=e.kind;
+$('customPattern').hidden=e.kind!=='custom';
+$('modelFile').value='';$('pattFile').value='';$('markerImage').value='';
+$('fileName').textContent=e.modelName?('Cargado: '+e.modelName):'Sin archivo GLB. El visor muestra una figura de referencia.';
+$('posX').value=e.x;$('posY').value=e.y;$('posZ').value=e.z;$('modelSize').value=e.size;
+$('rotationY').value=e.rotation;$('animation').value=e.animation;
+$('sizeValue').textContent=e.size+' cm';$('rotValue').textContent=e.rotation+'°';
+}
+function changeFromControls(){
+const e=selectedEntry();if(!e)return;
+e.name=$('entryName').value.trim()||'Sin nombre';
+e.kind=$('entryPattern').value;
+e.x=Number($('posX').value)||0;e.y=Number($('posY').value)||0;e.z=Number($('posZ').value)||0;
+e.size=Number($('modelSize').value)||12;e.rotation=Number($('rotationY').value)||0;e.animation=$('animation').value;
+$('customPattern').hidden=e.kind!=='custom';
+$('sizeValue').textContent=e.size+' cm';$('rotValue').textContent=e.rotation+'°';
+$('selectedHint').textContent='Configurando: '+e.name;
+markDirty();drawList();applyTransform();if(e.kind!==markerKindVisible)void setMarkerTexture(e.kind,e.markerImageBlob);
+}
+function clearModel(){
+if(previewObject){previewObject.parent?.remove(previewObject);previewObject.traverse(node=>{
+if(node.isMesh){node.geometry?.dispose();for(const material of (Array.isArray(node.material)?node.material:[node.material]))material?.dispose();}
+});}
+previewObject=null;mixer=null;
+}
+let markerKindVisible='';
+async function setMarkerTexture(kind,customBlob){
+const key=kind+':'+(customBlob?.size||0);
+if(key===markerKindVisible)return;
+markerKindVisible=key;
+if(markerTexture){markerTexture.dispose();markerTexture=null;}
+const url=kind==='hiro'?'./assets/hiro.svg':kind==='kanji'?'./assets/kanji-from-pattern.svg':customBlob?URL.createObjectURL(customBlob):null;
+if(!url){markerMaterial.map=null;markerMaterial.color.set('#f6faf7');markerMaterial.needsUpdate=true;return;}
+try{
+const texture=await new THREE.TextureLoader().loadAsync(url);
+texture.colorSpace=THREE.SRGBColorSpace;
+texture.anisotropy=Math.min(renderer.capabilities.getMaxAnisotropy(),8);
+if(kind!==selectedEntry()?.kind){texture.dispose();return;}
+markerTexture=texture;markerMaterial.map=texture;markerMaterial.color.set('#ffffff');markerMaterial.needsUpdate=true;
+}catch(error){markerMaterial.map=null;markerMaterial.needsUpdate=true;}
+finally{if(kind==='custom'&&url?.startsWith('blob:'))URL.revokeObjectURL(url);}
+}
+function applyTransform(){
+const e=selectedEntry();if(!e||!currentGroup)return;
+currentGroup.position.set(e.x/15,e.y/15,e.z/15);
+currentGroup.rotation.set(0,THREE.MathUtils.degToRad(e.rotation),0);
+if(previewObject){
+const length=Number(previewObject.userData.normalizedLength)||1;
+previewObject.scale.setScalar((e.size/15)/length);
+}
+}
+async function showPreview(){
+const token=++previewToken,e=selectedEntry();
+clearModel();
+if(currentGroup)scene.remove(currentGroup);
+currentGroup=new THREE.Group();scene.add(currentGroup);
+if(!e){$('previewStatus').textContent='Sin marcador seleccionado';return;}
+await setMarkerTexture(e.kind,e.markerImageBlob);
+if(token!==previewToken)return;
+$('previewStatus').textContent='Cargando vista previa…';
+try{
+let mesh;
+if(e.modelBlob){
+const blobUrl=URL.createObjectURL(e.modelBlob);
+try{const gltf=await loader.loadAsync(blobUrl);mesh=gltf.scene;
+if(token!==previewToken)return;
+if(gltf.animations?.length){
+mixer=new THREE.AnimationMixer(mesh);
+for(const clip of gltf.animations)mixer.clipAction(clip).play();
+}
+}finally{URL.revokeObjectURL(blobUrl)}
+}else{
+mesh=new THREE.Mesh(fallback,new THREE.MeshStandardMaterial({color:0x54b792,roughness:.35,metalness:.15}));
+}
+if(token!==previewToken)return;
+const bounds=new THREE.Box3().setFromObject(mesh),center=new THREE.Vector3(),dims=new THREE.Vector3();
+bounds.getCenter(center);bounds.getSize(dims);
+const longest=Math.max(dims.x,dims.y,dims.z);
+if(!longest||!Number.isFinite(longest))throw Error('El modelo no tiene geometría visible.');
+mesh.position.sub(new THREE.Vector3(center.x,bounds.min.y,center.z));
+const wrap=new THREE.Group();wrap.userData.normalizedLength=longest;wrap.add(mesh);
+previewObject=wrap;currentGroup.add(wrap);
+applyTransform();
+$('previewStatus').textContent=e.modelBlob?('Vista previa: '+e.modelName):'Figura de referencia · cargá un GLB para reemplazarla';
+}catch(error){$('previewStatus').textContent='No se pudo abrir el GLB: '+error.message;inform(error.message,true)}
+}
+async function downloadExport(){
+if(!session)return;
+if(typeof JSZip==='undefined')throw Error('No se pudo cargar JSZip.');
+const zip=new JSZip(),manifest={format:'estudio-webar-v1',id:session.id,name:session.name,description:session.description,createdAt:session.createdAt,entries:[]};
+for(const [i,e] of session.entries.entries()){
+const id='marcador-'+String(i+1).padStart(2,'0');
+const entry={id:e.id,name:e.name,kind:e.kind,x:e.x,y:e.y,z:e.z,size:e.size,rotation:e.rotation,animation:e.animation,model:'',patt:'',image:''};
+if(e.modelBlob){entry.model='modelos/'+id+'.glb';zip.file(entry.model,e.modelBlob);}
+if(e.kind==='custom'&&e.pattText){entry.patt='patrones/'+id+'.patt';zip.file(entry.patt,e.pattText);}
+if(e.kind==='custom'&&e.markerImageBlob){entry.image='patrones/'+id+'-imagen.'+(e.markerImageBlob.type==='image/svg+xml'?'svg':e.markerImageBlob.type==='image/jpeg'?'jpg':'png');zip.file(entry.image,e.markerImageBlob);}
+manifest.entries.push(entry);
+}
+zip.file('recorrido.json',JSON.stringify(manifest,null,2));
+zip.file('LEEME.txt','Este ZIP es un respaldo del editor Estudio WebAR.\nContiene tu recorrido, ajustes de transformación y modelos GLB.\nTodavía no es una publicación lista para visitantes: faltan la generación de marcadores y el despliegue web.\n');
+const output=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
+const url=URL.createObjectURL(output),a=document.createElement('a');
+a.href=url;a.download=(session.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,'-').toLowerCase()||'recorrido')+'.zip';
+a.click();setTimeout(()=>URL.revokeObjectURL(url),4000);
+}
+for(const name of ['sessionName','sessionDesc']){
+$(name).addEventListener('input',()=>{
+if(!session)return;
+session.name=$('sessionName').value.trim()||'Recorrido sin nombre';
+session.description=$('sessionDesc').value;
+markDirty();
+});
+}
+for(const id of ['entryName','entryPattern','posX','posY','posZ','modelSize','rotationY','animation'])$(id).addEventListener('input',changeFromControls);
+$('entryPattern').addEventListener('change',()=>void showPreview());
+$('addEntry').onclick=()=>{
+if(session.entries.length>=20){inform('Para esta primera versión admitimos hasta 20 marcadores por recorrido.',true);return;}
+const e=newEntry(session.entries.length);
+session.entries.push(e);activeId=e.id;markDirty();drawList();populate();void showPreview();
+inform('Marcador creado. A partir del tercero seleccionamos patrón personalizado; en la siguiente etapa automatizaremos su generación.');
+};
+$('duplicateEntry').onclick=()=>{
+const e=selectedEntry();if(!e)return;
+const copy={...e,id:uid(),name:e.name+' (copia)',kind:'custom',pattText:'',markerImageBlob:null};
+session.entries.push(copy);activeId=copy.id;markDirty();drawList();populate();void showPreview();
+inform('Configuración duplicada. Debés asignar un patrón espacial único al nuevo marcador.');
+};
+$('removeEntry').onclick=()=>{
+if(session.entries.length===1){inform('El recorrido debe tener al menos un marcador.',true);return;}
+if(!confirm('¿Quitar este marcador del recorrido?'))return;
+session.entries=session.entries.filter(e=>e.id!==activeId);
+activeId=session.entries[0].id;markDirty();drawList();populate();void showPreview();
+};
+$('modelFile').onchange=async e=>{
+const f=e.target.files?.[0];if(!f)return;
+if(!f.name.toLowerCase().endsWith('.glb')){inform('Elegí un archivo GLB (.glb).',true);return;}
+const entry=selectedEntry();if(!entry)return;
+entry.modelBlob=f;entry.modelName=f.name;markDirty();drawList();populate();await showPreview();
+};
+$('pattFile').onchange=async e=>{const f=e.target.files?.[0],entry=selectedEntry();if(!f||!entry)return;entry.pattText=await f.text();markDirty();inform('Patrón .patt agregado al marcador seleccionado.')};
+$('markerImage').onchange=async e=>{const f=e.target.files?.[0],entry=selectedEntry();if(!f||!entry)return;entry.markerImageBlob=f;markDirty();void showPreview();};
+$('saveSession').onclick=async()=>{
+try{session.updatedAt=new Date().toISOString();await sessionSave();clean();await refreshSessions();inform('Recorrido guardado en este navegador. Podés volver a abrirlo desde la lista. Para respaldo usá Exportar ZIP.')}
+catch(error){inform('No se pudo guardar: '+error.message,true)}
+};
+$('newSession').onclick=()=>{
+if(dirty&&!confirm('Hay cambios sin guardar. ¿Crear otro recorrido de todos modos?'))return;
+setSession(newSession());inform('Nuevo recorrido creado. Completá sus marcadores y presioná «Guardar recorrido».');
+};
+$('sessionSelect').onchange=async e=>{
+const id=e.target.value;
+if(dirty&&!confirm('Hay cambios sin guardar. ¿Cambiar de recorrido?')){e.target.value=session.id;return;}
+if(!id){setSession(newSession());return;}
+const saved=await txn('readonly',s=>s.get(id));
+if(saved)setSession(saved);
+};
+$('exportSession').onclick=async()=>{
+try{inform('Preparando ZIP de respaldo…');await downloadExport();inform('ZIP generado. Incluye los GLB cargados y la configuración del recorrido.')}
+catch(error){inform('No se pudo exportar: '+error.message,true)}
+};
+$('deleteSession').onclick=async()=>{
+if(!session)return;
+if(!confirm('¿Eliminar este recorrido guardado del navegador? No se puede deshacer.'))return;
+try{await sessionRemove(session.id);setSession(newSession());inform('Recorrido eliminado del almacenamiento local.')}
+catch(error){inform('No se pudo eliminar: '+error.message,true)}
+};
+$('resetView').onclick=()=>{cam.position.set(1.35,1.2,1.55);controls.target.set(0,.16,0);controls.update()};
+$('playToggle').onclick=()=>{play=!play;$('playToggle').textContent=play?'Pausar animación':'Reproducir animación';if(!play)applyTransform()};
+window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue=''}});
+(async()=>{
+try{db=await dbOpen();const saved=await listSessions();setSession(saved.sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''))[0]||newSession());inform('Editor listo. Creá tu recorrido y cargá un modelo GLB.');}
+catch(error){inform('El almacenamiento local no está disponible: '+error.message,true);session=newSession();activeId=session.entries[0].id;drawList();populate();void showPreview();}
+})();
+</script>
+</body>
+</html>
