@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Marcadores para colección WebAR</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box}html,body{margin:0;background:#f3f4f5;color:#192b30;font-family:system-ui,-apple-system,sans-serif}
+main{max-width:1050px;margin:auto;padding:25px 16px}h1{font-size:clamp(24px,4vw,34px);margin:0 0 8px}p{line-height:1.5;color:#526168}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin:18px 0}
+.card{background:#fff;padding:16px;border:1px solid #dce3e5;border-radius:15px}
+.card h2{font-size:18px;margin:0 0 10px}.card canvas{display:block;width:100%;height:auto;background:white;border:1px solid #edf0f1}
+button,a.primary{display:inline-block;text-align:center;border:0;border-radius:9px;padding:11px 15px;background:#18352f;color:white;text-decoration:none;font:600 14px system-ui;cursor:pointer}
+button:disabled{opacity:.55}.buttons{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}.buttons>*{flex:1}
+.note{background:#e5eeeb;border-radius:10px;padding:14px;color:#294b44;line-height:1.5}
+#qr-work{position:fixed;left:-10000px;top:0}
+@media print{header,.buttons,.note,#status,.caption{display:none!important}main{padding:0}.cards{display:block}.card{break-after:page;border:none;padding:0;margin:0 auto;max-width:160mm}.card canvas{width:160mm;max-width:160mm;border:0}}
+</style>
+</head>
+<body>
+<main>
+<header><h1>Colección piloto — dos marcadores, dos objetos</h1><p>Ambos marcadores llevan a la <strong>misma experiencia WebAR</strong>. Una vez abierta la cámara, no necesitás volver a escanear para pasar de un objeto a otro.</p></header>
+<div class="buttons"><a class="primary" href="./multi-ar.html" target="_blank" rel="noopener">Abrir experiencia de colección</a><button onclick="window.print()">Imprimir marcadores</button></div>
+<div class="cards">
+<section class="card"><h2>Marcador 01 · Hiro</h2><canvas id="hiro" width="2200" height="2520" aria-label="Marcador Hiro con QR integrado"></canvas><p class="caption">El QR se encuentra dentro del marcador, como en tu prueba original.</p><button id="download-hiro" disabled>Descargar marcador 01</button></section>
+<section class="card"><h2>Marcador 02 · Kanji</h2><canvas id="kanji" width="2200" height="2520" aria-label="Marcador Kanji con QR debajo"></canvas><p class="caption">El QR de acceso está debajo del patrón Kanji para no tapar la figura espacial.</p><button id="download-kanji" disabled>Descargar marcador 02</button></section>
+</div>
+<div class="note">Para comprobarlos, abrí el QR de cualquiera de los carteles desde el celular, tocá «Iniciar experiencia AR» y apuntá primero a Hiro y después a Kanji. Probá ambos patrones por separado antes de imprimir una serie. El patrón Kanji de esta primera versión fue reconstruido desde el archivo de referencia y todavía necesita validación en tu teléfono.</div>
+<p id="status" role="status">Preparando marcadores…</p>
+<div id="qr-work"></div>
+</main>
+<script>
+const link='https://angelv-salazar.github.io/webAR-QR/multi-ar.html';
+const canvases={hiro:document.getElementById('hiro'),kanji:document.getElementById('kanji')};
+const status=document.getElementById('status');
+function loadImage(src){return new Promise((resolve,reject)=>{
+ const img=new Image();img.onload=()=>resolve(img);img.onerror=()=>reject(Error('No se pudo cargar '+src));img.src=src;
+});}
+function makeQR(){
+ return new Promise(async(resolve,reject)=>{
+   try{
+     if(typeof QRCode==='undefined')throw Error('No se cargó el generador de QR.');
+     const target=document.getElementById('qr-work');target.replaceChildren();
+     new QRCode(target,{text:link,width:512,height:512,colorDark:'#000',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M});
+     await new Promise(r=>requestAnimationFrame(r));
+     const canvas=target.querySelector('canvas');
+     if(canvas)return resolve(canvas);
+     const img=target.querySelector('img');
+     if(img){if(img.complete&&img.naturalWidth)return resolve(img);img.onload=()=>resolve(img);img.onerror=()=>reject(Error('QR no disponible'))}
+     else reject(Error('QR no disponible'));
+   }catch(e){reject(e)}
+ });
+}
+function draw(canvas,img,qr,kind){
+ const c=canvas.getContext('2d');
+ c.fillStyle='#fff';c.fillRect(0,0,2200,2520);
+ c.drawImage(img,100,100,2000,2000);
+ c.imageSmoothingEnabled=false;
+ if(kind==='hiro'){
+   c.fillStyle='#fff';c.fillRect(1100,700,400,400);c.drawImage(qr,1100,700,400,400);
+ }else{
+   c.drawImage(qr,160,2180,300,300);
+ }
+ c.imageSmoothingEnabled=true;
+ c.fillStyle='#1a3336';
+ c.font='bold 72px system-ui';
+ c.fillText(kind==='hiro'?'01 — Aguacate':'02 — BoomBox',kind==='hiro'?150:530,2300);
+ c.font='40px system-ui';
+ c.fillText(kind==='hiro'?'Escaneá el QR del centro':'Escaneá el QR inferior o usá el primero',kind==='hiro'?150:530,2390);
+}
+function download(c,name){
+ c.toBlob(blob=>{
+  if(!blob){status.textContent='No se pudo crear el PNG';return}
+  const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),2000);
+ },'image/png');
+}
+async function run(){
+ try{
+  const [qr,hiro,kanji]=await Promise.all([makeQR(),loadImage('./assets/hiro.svg'),loadImage('./assets/kanji-from-pattern.svg')]);
+  draw(canvases.hiro,hiro,qr,'hiro');draw(canvases.kanji,kanji,qr,'kanji');
+  document.getElementById('download-hiro').disabled=false;document.getElementById('download-kanji').disabled=false;
+  status.textContent='Marcadores generados. Los dos QR abren la misma sesión.';
+ }catch(e){status.textContent='Error: '+e.message}
+}
+document.getElementById('download-hiro').onclick=()=>download(canvases.hiro,'01-Hiro-QR.png');
+document.getElementById('download-kanji').onclick=()=>download(canvases.kanji,'02-Kanji-QR.png');
+run();
+</script>
+</body></html>
