@@ -191,6 +191,7 @@ main{
 <button class="btn secondary" id="testSession">Probar con mi cámara</button>
 <button class="btn" id="preparePublish">Preparar publicación</button>
 </div>
+<button class="btn secondary" id="exportTexts" type="button" style="width:100%;margin-top:8px">Exportar solo descripciones (JSON)</button>
 <p class="muted" style="margin-top:8px">Nota: para probar en el celular, primero publicá el recorrido. La prueba local se ejecuta exclusivamente en el equipo donde guardaste el proyecto. El ZIP de publicación se puede subir a GitHub para habilitar todos sus QR.</p>
 </div>
 <div class="divider"></div>
@@ -882,6 +883,29 @@ $('testSession').onclick=async()=>{
    window.open(url.href,'_blank','noopener');
    inform('Prueba abierta en otra pestaña. Autorizá la cámara y apuntá a los marcadores impresos. El modo local usa los archivos guardados en este navegador.');
  }catch(error){inform('No se pudo iniciar la prueba: '+error.message,true);}
+};
+$('exportTexts').onclick=()=>{
+  try{
+    if(dirty)throw Error('Guardá los cambios antes de exportar las descripciones.');
+    if(!session?.entries?.length)throw Error('El recorrido todavía no tiene marcadores.');
+    const data={
+      format:'estudio-webar-descriptions-v1',
+      id:session.id,
+      name:session.name,
+      entries:session.entries.map(e=>({
+        id:e.id,
+        title:e.name,
+        description:String(e.description||'').slice(0,500)
+      }))
+    };
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download='descripciones-'+session.id+'.json';
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),3500);
+    inform('Descripciones exportadas. Este archivo pequeño permite actualizar los textos publicados sin volver a subir los GLB o imprimir otros QR.');
+  }catch(error){inform('No se pudieron exportar las descripciones: '+error.message,true);}
 };
 $('preparePublish').onclick=async()=>{
  const button=$('preparePublish');
