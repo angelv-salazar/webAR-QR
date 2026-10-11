@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WebAR – Laboratorio de cámara</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#050607;color:white}
+#camera{position:fixed;inset:0;width:100%;height:100%;height:100dvh;object-fit:cover;background:#111;display:block}
+#ui{position:fixed;z-index:10;top:12px;left:12px;right:12px;border-radius:13px;background:rgba(13,16,20,.92);box-shadow:0 8px 35px #0008;padding:13px;max-height:calc(100dvh - 105px);overflow:auto}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+h1{font-size:15px;font-weight:650;margin:0}
+#toggle{flex:none;border:1px solid #69747d;background:transparent;color:#fff;border-radius:9px;padding:6px 9px}
+#content{margin-top:10px}
+#content[hidden]{display:none}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+label{font-size:12px;color:#bbc6cb;display:block;margin-bottom:5px}
+select,button{font-family:inherit;font-size:13px}
+select{width:100%;background:#252b30;color:#fff;border:1px solid #4b5961;border-radius:8px;padding:10px 5px;min-width:0}
+.action{border:0;background:#4ee4b3;color:#12251f;border-radius:9px;padding:11px 13px;font-weight:700}
+.secondary{border:1px solid #53616a;color:#fff;background:#30383d;border-radius:9px;padding:10px}
+#buttons{display:flex;gap:8px;margin-top:12px}#buttons button{flex:1}
+#result{font-size:12px;line-height:1.45;color:#e9f0f3;background:#0a0e11;border:1px solid #34454e;padding:10px;border-radius:9px;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:10px}
+#msg{position:fixed;z-index:9;bottom:14px;left:12px;right:12px;background:rgba(0,0,0,.86);border-radius:10px;border:1px solid #4ee4b3;padding:10px 12px;font-size:12px;line-height:1.4}
+#zoomRow{margin-top:12px;display:none}#zoom{width:100%}
+</style>
+</head>
+<body>
+<video id="camera" muted autoplay playsinline></video>
+<div id="ui">
+  <header><h1>Laboratorio de cámara · WebAR</h1><button id="toggle" type="button">Ocultar</button></header>
+  <div id="content">
+    <div class="controls">
+      <div><label for="device">Cámara</label><select id="device"><option value="">Trasera automática</option></select></div>
+      <div><label for="format">Formato solicitado</label>
+        <select id="format">
+          <option value="portrait">Vertical 9:16</option>
+          <option value="portrait43">Vertical 3:4</option>
+          <option value="square">Cuadrado 1:1</option>
+          <option value="standard">Horizontal 4:3</option>
+          <option value="wide">Horizontal 16:9</option>
+          <option value="auto">Sin restricciones de tamaño</option>
+        </select>
+      </div>
+      <div><label for="view">Presentación</label><select id="view"><option value="cover">Pantalla completa (recorta)</option><option value="contain">Imagen completa (bandas)</option></select></div>
+      <div><label for="strict">Modo de solicitud</label><select id="strict"><option value="ideal">Preferencia (ideal)</option><option value="exact">Relación exacta (puede fallar)</option></select></div>
+    </div>
+    <div id="buttons">
+      <button id="start" class="action" type="button">Activar / probar</button>
+      <button id="copy" class="secondary" type="button">Copiar datos</button>
+    </div>
+    <div id="zoomRow"><label for="zoom">Zoom de cámara: <span id="zoomNumber">1×</span></label><input id="zoom" type="range" step=".1" min="1" max="2" value="1"></div>
+    <div id="result">Presioná «Activar / probar». Cambiar formato requiere volver a pulsar el botón.</div>
+  </div>
+</div>
+<div id="msg">Diagnóstico de cámara solamente, sin AR.js. Esta prueba no posiciona objetos 3D.</div>
+<script>
+(function(){
+const video=document.getElementById('camera');
+const result=document.getElementById('result');
+const msg=document.getElementById('msg');
+const start=document.getElementById('start');
+const fmt=document.getElementById('format');
+const device=document.getElementById('device');
+const strict=document.getElementById('strict');
+const view=document.getElementById('view');
+const content=document.getElementById('content');
+const zoomRow=document.getElementById('zoomRow');
+const zoomInput=document.getElementById('zoom');
+const zoomNumber=document.getElementById('zoomNumber');
+let stream,track,errors='',lastReport='';
+const presets={
+  portrait:{w:720,h:1280,aspect:9/16},
+  portrait43:{w:720,h:960,aspect:3/4},
+  square:{w:720,h:720,aspect:1},
+  standard:{w:1024,h:768,aspect:4/3},
+  wide:{w:1280,h:720,aspect:16/9}
+};
+function report(){
+ const vw=video.videoWidth||0,vh=video.videoHeight||0;
+ const W=Math.round(video.clientWidth),H=Math.round(video.clientHeight);
+ const ratio=(vw>0&&vh>0)?vw/vh:0, screenRatio=W/H;
+ const visible=ratio?Math.min(ratio/screenRatio,screenRatio/ratio):0;
+ const settings=track?.getSettings?.()||{};
+ const capabilities=track?.getCapabilities?.()||{};
+ let summary='Video real: '+vw+' × '+vh+'\n'+
+ 'Pantalla disponible: '+W+' × '+H+'\n'+
+ 'Proporción real: '+(ratio?ratio.toFixed(3):'sin datos')+'\n'+
+ 'Cámara elegida: '+(track?.label||'ninguna')+'\n'+
+ 'Imagen visible con cover: '+Math.round(visible*100)+'% (aproximado)\n'+
+ 'Zoom informado: '+(settings.zoom??'no informado')+'\n'+
+ 'Rango de zoom: '+(capabilities.zoom?capabilities.zoom.min+' a '+capabilities.zoom.max:'no disponible')+
+ '\nFormato solicitado: '+fmt.value+' | '+strict.value+
+ '\nPresentación: '+view.value+
+ (errors?'\nError: '+errors:'');
+ result.textContent=summary;
+ msg.textContent=track?.readyState==='live'?'Cámara activa. Elegí otro formato y tocá «Activar / probar» para comparar.':'Cámara no iniciada o detenida.';
+ lastReport=summary+'\nConfiguración: '+JSON.stringify(settings)+'\nCapacidades: '+JSON.stringify(capabilities);
+}
+async function devices(){
+ try{
+  const list=await navigator.mediaDevices.enumerateDevices();
+  const previous=device.value;
+  device.innerHTML='<option value="">Trasera automática</option>';
+  list.filter(d=>d.kind==='videoinput').forEach((d,i)=>{
+    const opt=document.createElement('option');opt.value=d.deviceId;opt.textContent=d.label||'Cámara '+(i+1);device.appendChild(opt);
+  });
+  if(Array.from(device.options).some(o=>o.value===previous))device.value=previous;
+ }catch(e){errors='No se pudieron listar las cámaras: '+e.message;}
+}
+function stop(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;track=null;video.srcObject=null;}
+async function test(){
+ errors='';start.disabled=true;start.textContent='Probando…';
+ stop();
+ try{
+  const p=presets[fmt.value];
+  const constraints={audio:false,video:{}};
+  if(device.value)constraints.video.deviceId={exact:device.value};
+  else constraints.video.facingMode={ideal:'environment'};
+  if(p){
+    constraints.video.width={ideal:p.w};
+    constraints.video.height={ideal:p.h};
+    constraints.video.aspectRatio=strict.value==='exact'?{exact:p.aspect}:{ideal:p.aspect};
+  }
+  stream=await navigator.mediaDevices.getUserMedia(constraints);
+  track=stream.getVideoTracks()[0];
+  video.srcObject=stream;
+  await video.play();
+  await devices();
+  const cap=track.getCapabilities?.()||{};
+  if(cap.zoom&&Number.isFinite(cap.zoom.min)&&Number.isFinite(cap.zoom.max)&&cap.zoom.max>cap.zoom.min){
+    zoomInput.min=cap.zoom.min;zoomInput.max=cap.zoom.max;
+    zoomInput.step=cap.zoom.step||.1;
+    const actualZoom=track.getSettings?.().zoom||cap.zoom.min;
+    zoomInput.value=Math.max(cap.zoom.min,Math.min(cap.zoom.max,actualZoom));
+    zoomNumber.textContent=Number(zoomInput.value).toFixed(1)+'×';
+    zoomRow.style.display='block';
+  }else zoomRow.style.display='none';
+ }catch(e){
+  errors=e.name+': '+e.message;
+  zoomRow.style.display='none';
+ }
+ start.disabled=false;start.textContent='Activar / probar';
+ report();
+}
+start.onclick=test;
+view.onchange=()=>{video.style.objectFit=view.value;report();};
+device.onchange=()=>{msg.textContent='Cámara seleccionada. Tocá «Activar / probar» para aplicar.';};
+fmt.onchange=()=>{msg.textContent='Formato seleccionado. Tocá «Activar / probar» para aplicar.';};
+strict.onchange=()=>{msg.textContent='Modo de solicitud seleccionado. Tocá «Activar / probar» para aplicar.';};
+document.getElementById('toggle').onclick=()=>{
+ content.hidden=!content.hidden;
+ document.getElementById('toggle').textContent=content.hidden?'Mostrar':'Ocultar';
+};
+zoomInput.oninput=async()=>{
+ if(!track)return;
+ const zoom=Number(zoomInput.value);
+ try{await track.applyConstraints({advanced:[{zoom}]});zoomNumber.textContent=zoom.toFixed(1)+'×';report()}
+ catch(e){errors='Zoom no aplicable: '+e.message;report();}
+};
+document.getElementById('copy').onclick=async()=>{
+ try{await navigator.clipboard.writeText(lastReport);msg.textContent='Datos copiados. Podés pegarlos en el chat.'}
+ catch(e){msg.textContent='No se pudieron copiar automáticamente. Enviá una captura del panel.'}
+};
+window.addEventListener('resize',report);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)report();});
+window.addEventListener('pagehide',stop);
+report();
+})();
+</script>
+</body>
+</html>
