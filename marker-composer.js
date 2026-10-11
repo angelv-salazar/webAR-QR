@@ -71,7 +71,7 @@ function buildPrint(inner){
  ctx.fillStyle='#000';ctx.fillRect(outer,outer,black,black);
  const innerSize=black*MARKER_RATIO;
  const innerXY=(edge-innerSize)/2;
- ctx.imageSmoothingEnabled=true;ctx.drawImage(inner,innerXY,innerXY,innerSize,innerSize);
+ ctx.imageSmoothingEnabled=false;ctx.drawImage(inner,innerXY,innerXY,innerSize,innerSize);
  return canvas;
 }
 function encodeInner(imageDataUrl){
@@ -103,7 +103,7 @@ function detectContentBox(image){
  const median=index=>samples.map(p=>p[index]).sort((a,b)=>a-b)[Math.floor(samples.length/2)];
  const bg=[median(0),median(1),median(2)];
  const background='rgb('+bg.join(',')+')';
- const threshold=44;
+ const threshold=36;
  const countsX=new Uint16Array(S),countsY=new Uint16Array(S);
  let total=0;
  for(let y=0;y<S;y+=2)for(let x=0;x<S;x+=2){
@@ -115,7 +115,7 @@ function detectContentBox(image){
  if(total<90||total>(S/2)*(S/2)*.88)
    return {x:0,y:0,w:S,h:S,background,contentFound:false};
  let minX=S,minY=S,maxX=0,maxY=0;
- const minHits=Math.max(1,Math.round((S/2)*.012));
+ const minHits=5;
  for(let x=0;x<S;x+=2)if(countsX[x]>=minHits){minX=Math.min(minX,x);maxX=Math.max(maxX,x+2);}
  for(let y=0;y<S;y+=2)if(countsY[y]>=minHits){minY=Math.min(minY,y);maxY=Math.max(maxY,y+2);}
  if(minX>=maxX||minY>=maxY)return {x:0,y:0,w:S,h:S,background,contentFound:false};
