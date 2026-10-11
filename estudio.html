@@ -51,6 +51,11 @@ small,.muted{font-size:12px;line-height:1.5;color:var(--muted)}.divider{border-t
 .sessionQRInfo{min-width:0;overflow-wrap:anywhere;font-size:12px;line-height:1.5}
 .sessionQRInfo strong{font-size:13px}
 #sessionQRText{font:11px/1.45 ui-monospace,monospace;overflow-wrap:anywhere;margin:4px 0}
+.descriptionEditor{margin-top:18px;padding-top:12px;border-top:1px solid var(--line)}
+.descriptionEditor label{margin-top:2px;font-size:13px;color:var(--ink)}
+.descriptionEditor textarea{resize:vertical;min-height:104px;line-height:1.5}
+.descriptionMeta{display:flex;justify-content:space-between;align-items:start;gap:8px;margin-top:5px;color:var(--muted);font-size:11px;line-height:1.45}
+.descriptionMeta output{flex:none;font-variant-numeric:tabular-nums;font-weight:650;color:var(--green)}
 .publishPanel{margin-top:15px;padding:12px;background:#eef7f2;border:1px solid #cfe1d6;border-radius:9px}
 .publishPanel h3{margin:0 0 5px}
 .publishPanel .row{margin-top:9px}
@@ -227,6 +232,14 @@ main{
 <label for="modelFile">Modelo 3D (.glb)</label>
 <input type="file" id="modelFile" accept=".glb,model/gltf-binary,application/octet-stream">
 <p id="fileName" class="muted">Sin archivo GLB. El visor muestra una figura de referencia.</p>
+<div class="descriptionEditor">
+  <label for="entryDescription">Texto descriptivo (opcional)</label>
+  <textarea id="entryDescription" rows="5" maxlength="500" placeholder="Contá brevemente qué está viendo el visitante, su contexto o el concepto de la obra."></textarea>
+  <div class="descriptionMeta">
+    <span>Se muestra en el celular al reconocer este marcador.</span>
+    <output id="descCount" for="entryDescription">0 / 500</output>
+  </div>
+</div>
 <div class="row stretch" style="margin-top:14px">
 <button id="duplicateEntry" class="btn secondary">Duplicar configuración</button>
 <button id="removeEntry" class="btn warn">Quitar marcador</button>
@@ -339,7 +352,7 @@ controls.update();renderer.render(scene,cam);
 function uid(){return 'id-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8)}
 function newEntry(index){
 return {id:uid(),name:'Marcador '+String(index+1).padStart(2,'0'),kind:'custom',
-modelBlob:null,modelName:'',pattText:'',markerImageBlob:null,x:0,y:0,z:0,size:12,rotation:0,animation:'none'};
+modelBlob:null,modelName:'',pattText:'',markerImageBlob:null,description:'',x:0,y:0,z:0,size:12,rotation:0,animation:'none'};
 }
 function newSession(){
 return {id:uid(),name:'Mi primer recorrido AR',description:'',createdAt:new Date().toISOString(),updatedAt:null,entries:[newEntry(0)]};
@@ -443,6 +456,8 @@ $('entryEditor').hidden=!e;
 if(!e)return;
 $('selectedHint').textContent='Configurando: '+e.name;
 $('entryName').value=e.name;$('entryPattern').value=e.kind;
+$('entryDescription').value=String(e.description||'').slice(0,500);
+$('descCount').textContent=$('entryDescription').value.length+' / 500';
 $('customPattern').hidden=e.kind!=='custom';
 $('modelFile').value='';$('pattFile').value='';$('markerImage').value='';
 $('fileName').textContent=e.modelName?('Cargado: '+e.modelName):'Sin archivo GLB. El visor muestra una figura de referencia.';
@@ -587,7 +602,7 @@ async function preparePublication(){
    zip.file(root+model,e.modelBlob);
    zip.file(root+print,e.finalMarkerBlob);
    items.push({
-     id:e.id,title:e.name,marker:pattern,model,print,
+     id:e.id,title:e.name,description:String(e.description||'').slice(0,500),marker:pattern,model,print,
      xCm:e.x,yCm:e.y,zCm:e.z,sizeCm:e.size,
      rotationDeg:e.rotation,animation:e.animation||'none'
    });
@@ -619,7 +634,7 @@ if(typeof JSZip==='undefined')throw Error('No se pudo cargar JSZip.');
 const zip=new JSZip(),manifest={format:'estudio-webar-v2',id:session.id,name:session.name,description:session.description,createdAt:session.createdAt,publicUrl:routeURL(session.id),published:false,entries:[]};
 for(const [i,e] of session.entries.entries()){
 const id='marcador-'+String(i+1).padStart(2,'0');
-const entry={id:e.id,name:e.name,kind:e.kind,x:e.x,y:e.y,z:e.z,size:e.size,rotation:e.rotation,animation:e.animation,model:'',patt:'',image:'',
+const entry={id:e.id,name:e.name,description:String(e.description||'').slice(0,500),kind:e.kind,x:e.x,y:e.y,z:e.z,size:e.size,rotation:e.rotation,animation:e.animation,model:'',patt:'',image:'',
   validation:e.markerValidation?{ok:e.markerValidation.ok,width:e.markerValidation.info?.width,height:e.markerValidation.info?.height,
   warnings:e.markerValidation.warnings,errors:e.markerValidation.errors}:null};
 if(e.modelBlob){entry.model='modelos/'+id+'.glb';zip.file(entry.model,e.modelBlob);}
@@ -644,6 +659,15 @@ markDirty();
 });
 }
 for(const id of ['entryName','entryPattern','posX','posY','posZ','modelSize','rotationY','animation'])$(id).addEventListener('input',changeFromControls);
+$('entryDescription').addEventListener('input',()=>{
+  const e=selectedEntry();if(!e)return;
+  const text=$('entryDescription').value.slice(0,500);
+  if(text!==e.description){
+    e.description=text;
+    markDirty();
+  }
+  $('descCount').textContent=text.length+' / 500';
+});
 $('entryPattern').addEventListener('change',()=>{void showMarkerResult(selectedEntry());void showPreview();});
 $('addEntry').onclick=()=>{
 if(session.entries.length>=20){inform('Para esta primera versión admitimos hasta 20 marcadores por recorrido.',true);return;}
