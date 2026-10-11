@@ -210,7 +210,7 @@ main{
 </div>
 </div>
 </div>
-<p class="muted">El QR está dentro de la imagen que se utiliza para generar el .patt. Los patrones deben probarse impresos antes de publicar el recorrido.</p>
+<p class="muted">El visor 3D muestra el marcador final con QR después de generarlo. Si modificás la imagen, tendrás que regenerar el marcador y su .patt.</p>
 </div>
 <label for="modelFile">Modelo 3D (.glb)</label>
 <input type="file" id="modelFile" accept=".glb,model/gltf-binary,application/octet-stream">
@@ -449,7 +449,7 @@ e.size=Number($('modelSize').value)||12;e.rotation=Number($('rotationY').value)|
 $('customPattern').hidden=e.kind!=='custom';
 $('sizeValue').textContent=e.size+' cm';$('rotValue').textContent=e.rotation+'°';
 $('selectedHint').textContent='Configurando: '+e.name;
-markDirty();drawList();describeMarkerQuality(e);applyTransform();if(e.kind!==markerKindVisible)void setMarkerTexture(e.kind,e.markerImageBlob);
+markDirty();drawList();describeMarkerQuality(e);applyTransform();void setMarkerTexture(e);
 }
 function clearModel(){
 if(previewObject){previewObject.parent?.remove(previewObject);previewObject.traverse(node=>{
@@ -457,22 +457,42 @@ if(node.isMesh){node.geometry?.dispose();for(const material of (Array.isArray(no
 });}
 previewObject=null;mixer=null;
 }
-let markerKindVisible='';
-async function setMarkerTexture(kind,customBlob){
-const key=kind+':'+(customBlob?.size||0);
-if(key===markerKindVisible)return;
-markerKindVisible=key;
-if(markerTexture){markerTexture.dispose();markerTexture=null;}
-const url=kind==='hiro'?'./assets/hiro.svg':kind==='kanji'?'./assets/kanji-from-pattern.svg':customBlob?URL.createObjectURL(customBlob):null;
-if(!url){markerMaterial.map=null;markerMaterial.color.set('#f6faf7');markerMaterial.needsUpdate=true;return;}
-try{
-const texture=await new THREE.TextureLoader().loadAsync(url);
-texture.colorSpace=THREE.SRGBColorSpace;
-texture.anisotropy=Math.min(renderer.capabilities.getMaxAnisotropy(),8);
-if(kind!==selectedEntry()?.kind){texture.dispose();return;}
-markerTexture=texture;markerMaterial.map=texture;markerMaterial.color.set('#ffffff');markerMaterial.needsUpdate=true;
-}catch(error){markerMaterial.map=null;markerMaterial.needsUpdate=true;}
-finally{if(kind==='custom'&&url?.startsWith('blob:'))URL.revokeObjectURL(url);}
+// Material del suelo 3D: mostrar exactamente el PNG final cuando exista.
+let markerPreviewId='',markerPreviewSource=null,markerTextureRequest=0;
+async function setMarkerTexture(entry){
+ if(!entry)return;
+ const source=entry.kind==='hiro'?'./assets/hiro.svg':
+              entry.kind==='kanji'?'./assets/kanji-from-pattern.svg':
+              entry.finalMarkerBlob||entry.markerImageBlob||null;
+ if(entry.id===markerPreviewId && source===markerPreviewSource)return;
+ markerPreviewId=entry.id;
+ markerPreviewSource=source;
+ const token=++markerTextureRequest;
+ if(!source){
+   if(markerTexture){markerTexture.dispose();markerTexture=null;}
+   markerMaterial.map=null;markerMaterial.color.set('#f6faf7');markerMaterial.needsUpdate=true;
+   return;
+ }
+ const url=typeof source==='string'?source:URL.createObjectURL(source);
+ try{
+   const texture=await new THREE.TextureLoader().loadAsync(url);
+   if(token!==markerTextureRequest||selectedEntry()?.id!==entry.id){
+     texture.dispose();return;
+   }
+   texture.colorSpace=THREE.SRGBColorSpace;
+   texture.anisotropy=Math.min(renderer.capabilities.getMaxAnisotropy(),8);
+   const previous=markerTexture;
+   markerTexture=texture;markerMaterial.map=texture;
+   markerMaterial.color.set('#ffffff');markerMaterial.needsUpdate=true;
+   if(previous)previous.dispose();
+ }catch(error){
+   if(token===markerTextureRequest){
+     markerPreviewSource=null;
+     $('previewStatus').textContent='No se pudo cargar la imagen del marcador: '+error.message;
+   }
+ }finally{
+   if(typeof source!=='string')URL.revokeObjectURL(url);
+ }
 }
 function applyTransform(){
 const e=selectedEntry();if(!e||!currentGroup)return;
@@ -489,7 +509,7 @@ clearModel();
 if(currentGroup)scene.remove(currentGroup);
 currentGroup=new THREE.Group();scene.add(currentGroup);
 if(!e){$('previewStatus').textContent='Sin marcador seleccionado';return;}
-await setMarkerTexture(e.kind,e.markerImageBlob);
+await setMarkerTexture(e);
 if(token!==previewToken)return;
 $('previewStatus').textContent='Cargando vista previa…';
 try{
@@ -515,7 +535,7 @@ mesh.position.sub(new THREE.Vector3(center.x,bounds.min.y,center.z));
 const wrap=new THREE.Group();wrap.userData.normalizedLength=longest;wrap.add(mesh);
 previewObject=wrap;currentGroup.add(wrap);
 applyTransform();
-$('previewStatus').textContent=e.modelBlob?('Vista previa: '+e.modelName):'Figura de referencia · cargá un GLB para reemplazarla';
+$('previewStatus').textContent=(e.modelBlob?'Vista previa: '+e.modelName:'Figura de referencia · cargá un GLB para reemplazarla')+(e.kind==='custom'&&e.finalMarkerBlob?' · marcador final con QR':'');
 }catch(error){$('previewStatus').textContent='No se pudo abrir el GLB: '+error.message;inform(error.message,true)}
 }
 async function downloadExport(){
@@ -689,7 +709,12 @@ $('buildMarker').onclick=async()=>{
    entry.finalMarkerBlob=result.finalBlob;
    entry.finalForURL=result.url;
    markDirty();drawList();
-   if(selectedEntry()?.id===entry.id)await showMarkerResult(entry);
+   if(selectedEntry()?.id===entry.id){
+     await showMarkerResult(entry);
+     // Actualiza únicamente el suelo 3D: no reinicia el GLB ni la cámara.
+     await setMarkerTexture(entry);
+     $('previewStatus').textContent=(entry.modelName?'Vista previa: '+entry.modelName:'Figura de referencia')+' · marcador final con QR';
+   }
    inform('Marcador generado: imagen de impresión y patrón .patt. Guardá el recorrido para conservar ambos archivos. El QR todavía no abre una experiencia publicada.');
  }catch(error){
    $('markerBuildInfo').textContent='No se pudo generar el marcador: '+error.message;
