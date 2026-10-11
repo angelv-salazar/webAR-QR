@@ -186,7 +186,7 @@ main{
 <button class="btn secondary" id="testSession">Probar con mi cámara</button>
 <button class="btn" id="preparePublish">Preparar publicación</button>
 </div>
-<p class="muted" style="margin-top:8px">La prueba local solo funciona en el navegador y equipo donde guardaste el recorrido. El ZIP de publicación se puede subir a GitHub para habilitar todos sus QR.</p>
+<p class="muted" style="margin-top:8px">Nota: para probar en el celular, primero publicá el recorrido. La prueba local se ejecuta exclusivamente en el equipo donde guardaste el proyecto. El ZIP de publicación se puede subir a GitHub para habilitar todos sus QR.</p>
 </div>
 <div class="divider"></div>
 <h2>2. Marcadores del recorrido <span class="pill" id="count">0</span></h2>
@@ -281,7 +281,7 @@ main{
 <div id="printSheet"><img id="printImage" alt="Marcador a imprimir con tamaño físico de 15 × 15 cm"></div>
 <script type="module">
 import {inspectMarkerImage,compareFingerprints,checkPatt} from './marker-validation.js';
-import {routeURL,makeQR,composeMarker,MARKER_RATIO} from './marker-composer.js?v=5';
+import {routeURL,makeQR,composeMarker,MARKER_RATIO} from './marker-composer.js?v=7';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
