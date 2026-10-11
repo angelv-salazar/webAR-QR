@@ -27,14 +27,55 @@
     #start:disabled{opacity:.6}
     #diagnostic{position:fixed;z-index:7;bottom:max(12px,env(safe-area-inset-bottom));left:12px;right:12px;border:1px solid #47e1a5;background:#090c0ae0;border-radius:9px;padding:9px 10px;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
     /* Ficha informativa opcional: no interfiere con el seguimiento ni con la cámara. */
-    #objectDescription{position:fixed;z-index:6;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom) + var(--diagnostic-clearance,0px));max-width:470px;margin:0 auto;background:rgba(15,24,23,.9);color:#f5faf7;border:1px solid rgba(195,234,216,.33);border-radius:14px;box-shadow:0 10px 36px rgba(0,0,0,.28);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);overflow:hidden}
+    /* Tarjeta editorial ligera: blanco 80% arriba, 30% abajo, cámara visible. */
+    #objectDescription{
+      position:fixed;z-index:6;left:12px;right:12px;
+      bottom:calc(12px + env(safe-area-inset-bottom) + var(--diagnostic-clearance,0px));
+      max-width:470px;margin:0 auto;overflow:hidden;isolation:isolate;
+      background:linear-gradient(180deg,
+        rgba(247,251,249,.80) 0%,
+        rgba(247,251,249,.63) 48%,
+        rgba(247,251,249,.30) 100%);
+      color:#13241f;border:1px solid rgba(255,255,255,.58);
+      border-radius:18px;
+      box-shadow:0 10px 30px rgba(8,24,16,.13),inset 0 1px rgba(255,255,255,.34);
+      backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)
+    }
     #objectDescription[hidden]{display:none!important}
-    #objectDescHeader{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 13px}
-    #objectDescTitle{font-size:15px;font-weight:650;line-height:1.3;overflow-wrap:anywhere}
-    #objectDescToggle{flex:none;padding:7px 9px;border-radius:8px;border:1px solid rgba(255,255,255,.27);background:rgba(255,255,255,.09);color:#fff;font:12px system-ui;cursor:pointer}
-    #objectDescText{margin:0;padding:0 13px 14px;max-height:min(30dvh,235px);overflow-y:auto;overscroll-behavior:contain;white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.55 system-ui;color:#e7f0eb}
+    #objectDescription.entering{animation:descriptionRise .42s cubic-bezier(.2,.8,.2,1) both}
+    #objectDescHeader{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 16px 9px}
+    #objectDescIdentity{min-width:0;display:flex;flex-direction:column;gap:4px}
+    #objectDescEyebrow{display:flex;align-items:center;gap:7px;color:#28584b;font-size:10px;font-weight:750;letter-spacing:.11em;text-transform:uppercase}
+    #objectDescDot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#237e5f;box-shadow:0 0 0 3px rgba(35,126,95,.12)}
+    #objectDescTitle{display:block;color:#11231d;font-size:17px;font-weight:720;letter-spacing:-.02em;line-height:1.25;overflow-wrap:anywhere;text-shadow:0 1px 3px rgba(255,255,255,.48)}
+    #objectDescToggle{
+      flex:none;padding:8px 11px;border-radius:20px;
+      border:1px solid rgba(23,66,47,.17);
+      background:rgba(255,255,255,.46);color:#16362a;
+      font:600 12px system-ui;cursor:pointer;touch-action:manipulation
+    }
+    #objectDescToggle:focus-visible{outline:2px solid #175c42;outline-offset:2px}
+    #objectDescText{
+      margin:0;padding:3px 16px 20px;max-height:min(29dvh,235px);
+      overflow-y:auto;overscroll-behavior:contain;white-space:pre-wrap;
+      overflow-wrap:anywhere;font:14px/1.6 system-ui;color:#10231d;
+      text-shadow:0 1px 2px rgba(255,255,255,.95),0 0 6px rgba(255,255,255,.65)
+    }
+    #objectDescText.typing::after{
+      content:"";display:inline-block;height:1em;width:2px;
+      margin-left:2px;vertical-align:-.15em;background:#21654d;
+      animation:typingCaret .8s steps(1,end) infinite
+    }
     #objectDescription[data-collapsed="true"] #objectDescText{display:none}
-    @media(max-height:650px){#objectDescText{max-height:23dvh}}
+    #objectDescription[data-collapsed="true"] #objectDescHeader{padding-bottom:14px}
+    .descriptionSrOnly{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    @keyframes descriptionRise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes typingCaret{0%,49%{opacity:1}50%,100%{opacity:0}}
+    @media(max-height:650px){#objectDescText{max-height:23dvh;padding-bottom:14px}}
+    @media(prefers-reduced-motion:reduce){
+      #objectDescription.entering,#objectDescText.typing::after{animation:none!important}
+      #objectDescText.typing::after{display:none}
+    }
   </style>
   <script type="importmap">
   {
@@ -56,10 +97,14 @@
   <div id="diagnostic" hidden>Cargando bibliotecas…</div>
   <section id="objectDescription" hidden role="region" aria-label="Descripción del objeto reconocido" data-collapsed="false">
     <div id="objectDescHeader">
-      <strong id="objectDescTitle"></strong>
-      <button id="objectDescToggle" type="button" aria-expanded="true" aria-controls="objectDescText">Ocultar texto</button>
+      <div id="objectDescIdentity">
+        <span id="objectDescEyebrow"><span id="objectDescDot" aria-hidden="true"></span> Objeto reconocido</span>
+        <strong id="objectDescTitle"></strong>
+      </div>
+      <button id="objectDescToggle" type="button" aria-expanded="true" aria-controls="objectDescText">Minimizar</button>
     </div>
-    <p id="objectDescText"></p>
+    <p id="objectDescText" aria-hidden="true"></p>
+    <span id="objectDescAccessible" class="descriptionSrOnly" aria-live="polite"></span>
   </section>
   <script>
     window.addEventListener('error',function(e){var n=document.getElementById('diagnostic');if(n)n.textContent='Error: '+e.message});
@@ -85,6 +130,7 @@
     const descriptionPanel=document.getElementById('objectDescription');
     const descriptionTitle=document.getElementById('objectDescTitle');
     const descriptionText=document.getElementById('objectDescText');
+    const descriptionAccessible=document.getElementById('objectDescAccessible');
     const descriptionToggle=document.getElementById('objectDescToggle');
     const assets='https://raw.githack.com/AR-js-org/AR.js/3.4.8/data/data/';
     let stream=null,context=null,renderer=null,camera=null;
@@ -96,6 +142,9 @@
     const loadedModels=[];
     let trackingReady=false,frameId=0,lastDetect=0,lastStatus=0,started=false;
     let activeDescriptionId=null,lastDescriptionSeen=0,lastDescriptionTick=0,descriptionCollapsed=false;
+    let typingFrame=0,typingState=null;
+    const reducedDescriptionMotion=typeof window.matchMedia==='function'
+      &&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const textDemo=paramsForDescription(); 
     function paramsForDescription(){return new URLSearchParams(location.search).get('probar_texto')==='1';}
     let generatedCalibration=null;
@@ -178,17 +227,59 @@
         ? 'Texto de demostración para «'+row.entry.title+'». Desde Estudio WebAR podés escribir una descripción opcional de hasta 500 caracteres. Una vez publicada, aparecerá aquí automáticamente al apuntar a este marcador.'
         : '';
     }
+    function stopTyping(finish=false){
+      if(typingFrame){cancelAnimationFrame(typingFrame);typingFrame=0;}
+      const text=typingState?.text;
+      typingState=null;
+      descriptionText.classList.remove('typing');
+      if(finish&&text!==undefined)descriptionText.textContent=text;
+    }
+    function typeDescription(text){
+      stopTyping();
+      descriptionText.textContent='';
+      // El contenido visible se escribe gradualmente; lectores de pantalla
+      // reciben la descripción completa una sola vez en el elemento accesible.
+      if(reducedDescriptionMotion||!text){
+        descriptionText.textContent=text;
+        return;
+      }
+      const chars=(typeof Intl!=='undefined'&&typeof Intl.Segmenter==='function')
+        ? Array.from(new Intl.Segmenter('es',{granularity:'grapheme'}).segment(text),part=>part.segment)
+        : Array.from(text);
+      const duration=Math.min(5400,Math.max(850,chars.length*22));
+      const state={text,chars,shown:0,started:0,duration};
+      typingState=state;
+      descriptionText.classList.add('typing');
+      function animate(now){
+        if(typingState!==state)return;
+        if(!state.started)state.started=now;
+        const count=Math.min(chars.length,Math.floor((now-state.started)/duration*chars.length));
+        if(count>state.shown){
+          descriptionText.textContent+=chars.slice(state.shown,count).join('');
+          state.shown=count;
+        }
+        if(count<chars.length)typingFrame=requestAnimationFrame(animate);
+        else stopTyping(true);
+      }
+      typingFrame=requestAnimationFrame(animate);
+    }
     function showObjectDescription(row,t){
       const content=descriptionFor(row);
       if(!content)return;
       if(activeDescriptionId!==row.entry.id){
         activeDescriptionId=row.entry.id;
         descriptionTitle.textContent=String(row.entry.title||'Objeto');
-        descriptionText.textContent=content;
+        descriptionAccessible.textContent=String(row.entry.title||'Objeto')+'. '+content;
         descriptionCollapsed=false;
         descriptionPanel.dataset.collapsed='false';
-        descriptionToggle.textContent='Ocultar texto';
+        descriptionToggle.textContent='Minimizar';
         descriptionToggle.setAttribute('aria-expanded','true');
+        descriptionPanel.hidden=false;
+        // Reiniciar la animación visual solo al cambiar de marcador.
+        descriptionPanel.classList.remove('entering');
+        void descriptionPanel.offsetWidth;
+        descriptionPanel.classList.add('entering');
+        typeDescription(content);
       }
       descriptionPanel.hidden=false;
       lastDescriptionSeen=t;
@@ -199,7 +290,10 @@
       const preferred=found.find(row=>row.entry.id===activeDescriptionId)||found[0];
       if(preferred)showObjectDescription(preferred,t);
       else if(!descriptionPanel.hidden&&t-lastDescriptionSeen>900){
+        stopTyping();
         descriptionPanel.hidden=true;
+        descriptionPanel.classList.remove('entering');
+        descriptionAccessible.textContent='';
         activeDescriptionId=null;
       }
       if(!descriptionPanel.hidden){
@@ -210,8 +304,9 @@
     descriptionToggle.addEventListener('click',()=>{
       descriptionCollapsed=!descriptionCollapsed;
       descriptionPanel.dataset.collapsed=descriptionCollapsed?'true':'false';
-      descriptionToggle.textContent=descriptionCollapsed?'Mostrar texto':'Ocultar texto';
+      descriptionToggle.textContent=descriptionCollapsed?'Mostrar texto':'Minimizar';
       descriptionToggle.setAttribute('aria-expanded',descriptionCollapsed?'false':'true');
+      if(descriptionCollapsed)stopTyping(true);
     });
 
     function status(){
