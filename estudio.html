@@ -269,7 +269,7 @@ main{
 <div id="printSheet"><img id="printImage" alt="Marcador a imprimir con tamaño físico de 15 × 15 cm"></div>
 <script type="module">
 import {inspectMarkerImage,compareFingerprints,checkPatt} from './marker-validation.js';
-import {routeURL,makeQR,composeMarker,MARKER_RATIO} from './marker-composer.js';
+import {routeURL,makeQR,composeMarker,MARKER_RATIO} from './marker-composer.js?v=5';
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
@@ -681,7 +681,10 @@ async function showMarkerResult(entry){
    note.textContent='Imagen validada. Presioná «Generar marcador final» para incorporar el QR y obtener el .patt.';
    return;
  }
- note.textContent='Diseño generado: 15 × 15 cm. QR fijo abajo a la derecha. El enlace está reservado, pendiente de publicación.';
+ note.textContent=(entry.markerRatio!==MARKER_RATIO
+   ?'Este diseño fue generado con un borde anterior (ratio '+(entry.markerRatio||'desconocido')+'). Presioná «Generar marcador final» para actualizar el marco y el QR. '
+   :'Diseño generado: 15 × 15 cm, borde compacto y QR junto a la esquina. ')
+   +'El enlace está reservado, pendiente de publicación.';
  try{
    const bitmap=await createImageBitmap(entry.finalMarkerBlob);
    if(token!==displayToken){bitmap.close();return;}
