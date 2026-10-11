@@ -85,6 +85,101 @@ function encodeInner(imageDataUrl){
    })}catch(error){clearTimeout(timeout);reject(error)}
  });
 }
+function sampleCorners(ctx, w, h, patch = 32) {
+  const points = [
+    [0, 0],
+    [w - patch, 0],
+    [0, h - patch],
+    [w - patch, h - patch]
+  ];
+
+  let r = 0, g = 0, b = 0, count = 0;
+
+  for (const [sx, sy] of points) {
+    const data = ctx.getImageData(sx, sy, patch, patch).data;
+    for (let i = 0; i < data.length; i += 4) {
+      r += data[i];
+      g += data[i + 1];
+      b += data[i + 2];
+      count++;
+    }
+  }
+
+  return {
+    r: Math.round(r / count),
+    g: Math.round(g / count),
+    b: Math.round(b / count)
+  };
+}
+
+function colorDistance(r, g, b, bg) {
+  return Math.sqrt(
+    (r - bg.r) * (r - bg.r) +
+    (g - bg.g) * (g - bg.g) +
+    (b - bg.b) * (b - bg.b)
+  );
+}
+
+function detectContentBox(image) {
+  const ANALYSIS_SIZE = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = ANALYSIS_SIZE;
+  canvas.height = ANALYSIS_SIZE;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+  ctx.drawImage(image, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
+
+  const bg = sampleCorners(ctx, ANALYSIS_SIZE, ANALYSIS_SIZE, 24);
+  const data = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE).data;
+
+  let minX = ANALYSIS_SIZE;
+  let minY = ANALYSIS_SIZE;
+  let maxX = 0;
+  let maxY = 0;
+  let found = false;
+
+  const THRESHOLD = 38;
+
+  for (let y = 0; y < ANALYSIS_SIZE; y++) {
+    for (let x = 0; x < ANALYSIS_SIZE; x++) {
+      const i = (y * ANALYSIS_SIZE + x) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
+
+      if (a < 10) continue;
+
+      const dist = colorDistance(r, g, b, bg);
+
+      if (dist > THRESHOLD) {
+        found = true;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (!found) {
+    return { x: 0, y: 0, w: ANALYSIS_SIZE, h: ANALYSIS_SIZE };
+  }
+
+  const pad = Math.round(Math.max(maxX - minX, maxY - minY) * 0.06);
+
+  minX = Math.max(0, minX - pad);
+  minY = Math.max(0, minY - pad);
+  maxX = Math.min(ANALYSIS_SIZE, maxX + pad);
+  maxY = Math.min(ANALYSIS_SIZE, maxY + pad);
+
+  return {
+    x: minX,
+    y: minY,
+    w: maxX - minX,
+    h: maxY - minY
+  };
+}
 export async function composeMarker({imageBlob,sessionId}){
  if(!(imageBlob instanceof Blob))throw new Error('Primero cargá una imagen validada.');
  if(!sessionId)throw new Error('Este recorrido no tiene identificador.');
