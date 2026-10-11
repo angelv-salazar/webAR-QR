@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>WebAR QR | Cámara automática + Hiro</title>
+  <style>
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#111;color:#fff;font-family:system-ui,sans-serif}
+    #stage{position:fixed;inset:0;width:100vw;height:100vh;height:100dvh;background:#111;overflow:hidden}
+    #camera{position:absolute;left:0;top:0;display:block;object-fit:fill;filter:none;opacity:1;z-index:1;max-width:none;max-height:none}
+    #graphics{position:absolute;inset:0;pointer-events:none;z-index:2}
+    #graphics canvas{position:absolute;left:0;top:0;display:block;max-width:none;max-height:none;background:transparent}
+    #top{position:fixed;z-index:5;top:max(10px,env(safe-area-inset-top));left:12px;right:12px;display:flex;gap:8px;align-items:flex-start}
+    #instruction{flex:1;border-radius:9px;background:#0a0a0acf;padding:10px 12px;font-size:13px;line-height:1.3}
+    #full,#framing,#details{border:1px solid #9999;background:#111c;color:#fff;padding:10px;border-radius:9px;font:12px system-ui}
+    #framing,#details{white-space:nowrap}
+    #top{flex-wrap:wrap}
+    #instruction{min-width:40%;font-size:13px}
+    #diagnostic[hidden]{display:none!important}
+    #start{position:fixed;z-index:8;top:50%;left:50%;transform:translate(-50%,-50%);max-width:90vw;padding:16px 22px;border:0;border-radius:12px;background:#47e1a5;color:#0c2017;font:bold 16px system-ui}
+    #start:disabled{opacity:.6}
+    #diagnostic{position:fixed;z-index:7;bottom:max(12px,env(safe-area-inset-bottom));left:12px;right:12px;border:1px solid #47e1a5;background:#090c0ae0;border-radius:9px;padding:9px 10px;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+  </style>
+  <script type="importmap">
+  {
+    "imports":{
+      "three":"https://cdn.jsdelivr.net/npm/three@0.164.0/build/three.module.js",
+      "threex":"https://raw.githack.com/AR-js-org/AR.js/3.4.8/three.js/build/ar-threex.mjs"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="stage">
+    <video id="camera" autoplay muted playsinline></video>
+    <div id="graphics"></div>
+  </div>
+  <div id="top"><div id="instruction">Preparando experiencia…</div><button id="full" hidden>Pantalla completa</button><button id="framing" type="button" aria-label="Cambiar encuadre">Ver todo</button><button id="details" type="button" aria-label="Mostrar datos técnicos">Detalles</button></div>
+  <button id="start" disabled>Cargando…</button>
+  <div id="diagnostic" hidden>Cargando bibliotecas…</div>
+  <script>
+    window.addEventListener('error',function(e){var n=document.getElementById('diagnostic');if(n)n.textContent='Error: '+e.message});
+    window.addEventListener('unhandledrejection',function(e){var n=document.getElementById('diagnostic');if(n)n.textContent='Error: '+String(e.reason?.message||e.reason)});
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import {ArToolkitContext,ArMarkerControls} from 'threex';
+
+    const stage=document.getElementById('stage');
+    const video=document.getElementById('camera');
+    const graphics=document.getElementById('graphics');
+    const start=document.getElementById('start');
+    const full=document.getElementById('full');
+    const framing=document.getElementById('framing');
+    const details=document.getElementById('details');
+    const instruction=document.getElementById('instruction');
+    const info=document.getElementById('diagnostic');
+    const assets='https://raw.githack.com/AR-js-org/AR.js/3.4.8/data/data/';
+    let stream=null,context=null,renderer=null,camera=null,marker=null,object=null;
+    let trackingReady=false,frameId=0,lastDetect=0,lastStatus=0,started=false;
+    let lastError='',lastLayout='',fillViewport=true,markerWasVisible=false;
+    const scene=new THREE.Scene();
+
+    function constraints(){
+      // Coincide con "Sin restricciones de tamaño" del laboratorio.
+      // No solicitar width, height, aspectRatio ni frameRate.
+      return {audio:false,video:{facingMode:{ideal:'environment'}}};
+    }
+
+    function sizeBoth(){
+      if(!renderer||!video.videoWidth||!video.videoHeight)return;
+      const W=stage.clientWidth,H=stage.clientHeight;
+      const vw=video.videoWidth,vh=video.videoHeight;
+      // One and the same source-coordinate rectangle for camera AND graphics.
+      const scale=fillViewport?Math.max(W/vw,H/vh):Math.min(W/vw,H/vh);
+      const dw=vw*scale,dh=vh*scale;
+      const x=(W-dw)/2,y=(H-dh)/2;
+      const layout=[W,H,vw,vh,fillViewport].join('|');
+      if(layout===lastLayout)return;
+      lastLayout=layout;
+      for(const el of [video,renderer.domElement]){
+        el.style.position='absolute';
+        el.style.left=x+'px';
+        el.style.top=y+'px';
+        el.style.width=dw+'px';
+        el.style.height=dh+'px';
+        el.style.transform='none';
+        el.style.margin='0';
+      }
+      // The internal WebGL buffer keeps the same aspect ratio as the camera.
+      const maxPixels=1000;
+      const factor=Math.min(1,maxPixels/Math.max(vw,vh));
+      renderer.setSize(Math.round(vw*factor),Math.round(vh*factor),false);
+    }
+
+    function status(){
+      if(!started)return;
+      const track=stream?.getVideoTracks?.()[0];
+      const W=stage.clientWidth,H=stage.clientHeight;
+      const vw=video.videoWidth,vh=video.videoHeight;
+      const srcAspect=vw&&vh?vw/vh:1;
+      const dstAspect=W/H;
+      const visibleFraction=Math.min(srcAspect/dstAspect,dstAspect/srcAspect);
+      if(trackingReady){
+        const seen=Boolean(marker?.visible);
+        if(seen!==markerWasVisible){
+          markerWasVisible=seen;
+          instruction.textContent=seen?'Marcador detectado · objeto 3D activo':'Apuntá al marcador Hiro para ver el objeto 3D';
+        }
+      }
+      info.textContent='Video: '+vw+' × '+vh+' | cámara: '+(track?.readyState||'sin pista')+
+       '\nPantalla: '+W+' × '+H+' | encuadre visible: '+(Math.min(1,visibleFraction)*100).toFixed(0)+'%' +
+       '\nAR: '+(trackingReady?'listo':'iniciando')+' | Hiro: '+(marker?.visible?'detectado':'no detectado')+
+       (lastError?'\n'+lastError:'');
+    }
+
+    async function requestCamera(){
+      try{
+        return await navigator.mediaDevices.getUserMedia(constraints());
+      }catch(error){
+        if(error.name==='NotAllowedError'||error.name==='SecurityError')throw error;
+        lastError='No se pudo elegir la cámara trasera automáticamente; probando cámara predeterminada.';
+        return navigator.mediaDevices.getUserMedia({audio:false,video:true});
+      }
+    }
+
+    function runLoop(t){
+      frameId=requestAnimationFrame(runLoop);
+      if(trackingReady && video.readyState>=2 && t-lastDetect>50){
+        lastDetect=t;
+        try{context.update(video)}catch(error){lastError='Seguimiento AR: '+error.message;trackingReady=false;}
+      }
+      if(object)object.rotation.y+=.01;
+      if(renderer&&camera)renderer.render(scene,camera);
+      if(t-lastStatus>850){lastStatus=t;sizeBoth();status();}
+    }
+
+    async function initialize(){
+      if(started)return;
+      started=true;start.disabled=true;start.textContent='Activando cámara…';
+      info.textContent='Solicitando cámara trasera…';
+      instruction.textContent='Autorizá el acceso a la cámara';
+      try{
+        stream=await requestCamera();
+        video.srcObject=stream;
+        await video.play();
+        if(!video.videoWidth){
+          await new Promise((resolve,reject)=>{
+            const timeout=setTimeout(()=>reject(new Error('No llegó el video')),6000);
+            video.addEventListener('loadedmetadata',()=>{clearTimeout(timeout);resolve()},{once:true});
+          });
+        }
+        // Native preview, not a WebGL video texture: preserves original camera colors.
+        renderer=new THREE.WebGLRenderer({alpha:true,antialias:true,premultipliedAlpha:false});
+        renderer.setClearColor(0x000000,0);
+        renderer.setPixelRatio(1);
+        graphics.appendChild(renderer.domElement);
+        camera=new THREE.Camera();
+        scene.add(camera);
+        marker=new THREE.Group();
+        marker.matrixAutoUpdate=false;
+        marker.visible=false;
+        scene.add(marker);
+        object=new THREE.Mesh(
+          new THREE.IcosahedronGeometry(.42,1),
+          new THREE.MeshNormalMaterial()
+        );
+        object.position.y=.55;marker.add(object);
+        sizeBoth();
+        instruction.textContent='Cámara activa · preparando reconocimiento…';
+        info.textContent='Cámara activa. Inicializando reconocimiento Hiro…';
+        const vw=video.videoWidth,vh=video.videoHeight;
+        const long=640,short=Math.max(240,Math.round(640*Math.min(vw,vh)/Math.max(vw,vh)));
+        const detectionW=vw>=vh?long:short;
+        const detectionH=vw>=vh?short:long;
+        context=new ArToolkitContext({
+          cameraParametersUrl:assets+'camera_para.dat',
+          detectionMode:'mono',
+          canvasWidth:detectionW,
+          canvasHeight:detectionH,
+          maxDetectionRate:25
+        });
+        await new Promise((resolve,reject)=>{
+          const timeout=setTimeout(()=>reject(new Error('El detector tardó demasiado en iniciar')),15000);
+          context.init(()=>{clearTimeout(timeout);resolve()});
+        });
+        camera.projectionMatrix.copy(context.getProjectionMatrix());
+        if(context.arController){
+          const direction=vw>=vh?'landscape':'portrait';
+          context.arController.orientation=direction;
+          if(context.arController.options)context.arController.options.orientation=direction;
+        }
+        new ArMarkerControls(context,marker,{
+          type:'pattern',
+          patternUrl:assets+'patt.hiro',
+          changeMatrixMode:'modelViewMatrix'
+        });
+        trackingReady=true;
+        instruction.textContent='Apuntá al marcador Hiro para ver el objeto 3D';
+        start.style.display='none';
+        status();
+        frameId=requestAnimationFrame(runLoop);
+      }catch(error){
+        lastError=error.name+': '+error.message;
+        info.hidden=false;
+        instruction.textContent='No se pudo iniciar la experiencia';
+        info.textContent='No se pudo iniciar: '+lastError;
+        if(stream)stream.getTracks().forEach(track=>track.stop());
+        stream=null;started=false;
+        start.disabled=false;start.textContent='Reintentar cámara';
+      }
+    }
+    start.disabled=false;start.textContent='Iniciar experiencia AR';
+    info.hidden=!new URLSearchParams(location.search).has('debug');
+    details.addEventListener('click',()=>{
+      info.hidden=!info.hidden;
+      details.textContent=info.hidden?'Detalles':'Ocultar datos';
+    });
+    framing.addEventListener('click',()=>{
+      fillViewport=!fillViewport;
+      framing.textContent=fillViewport?'Ver todo':'Llenar pantalla';
+      lastLayout='';
+      sizeBoth();
+      status();
+    });
+    start.addEventListener('click',initialize);
+
+    if(document.documentElement.requestFullscreen){
+      full.hidden=false;
+      full.addEventListener('click',async()=>{
+        try{if(!document.fullscreenElement)await document.documentElement.requestFullscreen();else await document.exitFullscreen()}
+        catch(error){lastError='Pantalla completa no disponible en este navegador';status()}
+      });
+    }
+    function resized(){lastLayout='';requestAnimationFrame(sizeBoth)}
+    window.addEventListener('resize',resized);
+    window.visualViewport?.addEventListener('resize',resized);
+    window.addEventListener('orientationchange',()=>setTimeout(resized,350));
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden&&started){lastLayout='';sizeBoth();}});
+    window.addEventListener('pagehide',()=>{if(stream)stream.getTracks().forEach(track=>track.stop());cancelAnimationFrame(frameId)});
+  </script>
+</body>
+</html>
