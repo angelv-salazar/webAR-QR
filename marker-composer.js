@@ -1,7 +1,8 @@
-/* Estudio WebAR: marcador imprimible, QR + imagen entrenada (ratio 0.72). */
+/* Estudio WebAR: marcador compacto 15 cm, QR integrado, patternRatio 0.88. */
 import {checkPatt} from './marker-validation.js';
 
-export const MARKER_RATIO=0.72;
+export const MARKER_RATIO=0.88;
+export const MARKER_OUTER_MARGIN=0.045; // 4.5% blanco alrededor del marco
 export const MARKER_PRINT_PX=1800; // 15cm @ 304.8dpi (300dpi aproximados)
 export const MARKER_PRINT_CM=15;
 
@@ -39,54 +40,38 @@ export function makeQR(text,size=512){
    }catch(error){reject(error)}
  });
 }
-function paintInner(image, qr) {
-  const size = 1024;
-  const normalized = normalizeArtwork(image);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, size, size);
-
-  // primero dibujamos la imagen ya normalizada
-  ctx.drawImage(normalized, 0, 0, size, size);
-
-  // QR más pequeño y más pegado a la esquina
-  const qrSide = Math.round(size * 0.26);
-  const offset = Math.round(size * 0.008);   // mucho más cerca del borde
-  const quiet = Math.round(qrSide * 0.055);  // margen blanco mínimo
-
-  const x = size - qrSide - offset;
-  const y = size - qrSide - offset;
-
-  // fondo blanco del QR
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(x, y, qrSide, qrSide);
-
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(qr, x + quiet, y + quiet, qrSide - quiet * 2, qrSide - quiet * 2);
-  ctx.imageSmoothingEnabled = true;
-
-  return canvas;
+function paintInner(image,qr){
+ // El QR es fijo y forma parte del mismo patrón que codificamos en el .patt.
+ const size=1024,canvas=document.createElement('canvas');
+ canvas.width=canvas.height=size;
+ const ctx=canvas.getContext('2d');
+ const normalized=normalizeArtwork(image);
+ ctx.drawImage(normalized,0,0,size,size);
+ // La caja del QR toca prácticamente el extremo inferior derecho del área útil.
+ // Conservar una quiet zone de aproximadamente 4 módulos para lectura con celulares.
+ const qrSide=Math.round(size*.29);
+ const offset=Math.round(size*.006);
+ const quiet=Math.round(qrSide*.105);
+ const x=size-qrSide-offset,y=size-qrSide-offset;
+ ctx.fillStyle='#fff';ctx.fillRect(x,y,qrSide,qrSide);
+ ctx.imageSmoothingEnabled=false;
+ ctx.drawImage(qr,x+quiet,y+quiet,qrSide-2*quiet,qrSide-2*quiet);
+ ctx.imageSmoothingEnabled=true;
+ return canvas;
 }
 function buildPrint(inner){
- const edge=MARKER_PRINT_PX;
- const canvas=document.createElement('canvas');canvas.width=edge;canvas.height=edge;
+ const edge=MARKER_PRINT_PX,canvas=document.createElement('canvas');
+ canvas.width=canvas.height=edge;
  const ctx=canvas.getContext('2d');
  ctx.fillStyle='#fff';ctx.fillRect(0,0,edge,edge);
- // Misma geometría que MarkerCreator.buildFullMarker: 10% margen,
- // área negra 80%, imagen interior 72% del área negra.
- const outer=edge*.1;
- const black=edge*.8;
+ // AR.js detecta el contorno negro completo y extrae solo el patrón interior.
+ // 4.5% blanco + 5.46% negro a cada lado, y 80.08% imagen interna.
+ const outer=edge*MARKER_OUTER_MARGIN;
+ const black=edge*(1-2*MARKER_OUTER_MARGIN);
  ctx.fillStyle='#000';ctx.fillRect(outer,outer,black,black);
- const imageSize=black*MARKER_RATIO;
- const imageXY=(edge-imageSize)/2;
- ctx.fillStyle='#fff';ctx.fillRect(imageXY,imageXY,imageSize,imageSize);
- ctx.imageSmoothingEnabled=true;
- ctx.drawImage(inner,imageXY,imageXY,imageSize,imageSize);
+ const innerSize=black*MARKER_RATIO;
+ const innerXY=(edge-innerSize)/2;
+ ctx.imageSmoothingEnabled=true;ctx.drawImage(inner,innerXY,innerXY,innerSize,innerSize);
  return canvas;
 }
 function encodeInner(imageDataUrl){
@@ -100,136 +85,58 @@ function encodeInner(imageDataUrl){
    })}catch(error){clearTimeout(timeout);reject(error)}
  });
 }
-function sampleCorners(ctx, w, h, patch = 32) {
-  const points = [
-    [0, 0],
-    [w - patch, 0],
-    [0, h - patch],
-    [w - patch, h - patch]
-  ];
-
-  let r = 0, g = 0, b = 0, count = 0;
-
-  for (const [sx, sy] of points) {
-    const data = ctx.getImageData(sx, sy, patch, patch).data;
-    for (let i = 0; i < data.length; i += 4) {
-      r += data[i];
-      g += data[i + 1];
-      b += data[i + 2];
-      count++;
-    }
-  }
-
-  return {
-    r: Math.round(r / count),
-    g: Math.round(g / count),
-    b: Math.round(b / count)
-  };
+function detectContentBox(image){
+ // Detecta colores distintos al fondo de las esquinas, ignorando líneas aisladas.
+ const S=384;
+ const canvas=document.createElement('canvas');canvas.width=canvas.height=S;
+ const ctx=canvas.getContext('2d',{willReadFrequently:true});
+ ctx.fillStyle='#fff';ctx.fillRect(0,0,S,S);
+ ctx.drawImage(image,0,0,S,S);
+ const data=ctx.getImageData(0,0,S,S).data;
+ const corners=[[4,4],[S-20,4],[4,S-20],[S-20,S-20]];
+ const samples=[];
+ for(const [cx,cy] of corners){
+   for(let y=cy;y<cy+16;y+=3)for(let x=cx;x<cx+16;x+=3){
+     const at=(y*S+x)*4;samples.push([data[at],data[at+1],data[at+2]]);
+   }
+ }
+ const median=index=>samples.map(p=>p[index]).sort((a,b)=>a-b)[Math.floor(samples.length/2)];
+ const bg=[median(0),median(1),median(2)];
+ const background='rgb('+bg.join(',')+')';
+ const threshold=44;
+ const countsX=new Uint16Array(S),countsY=new Uint16Array(S);
+ let total=0;
+ for(let y=0;y<S;y+=2)for(let x=0;x<S;x+=2){
+   const i=(y*S+x)*4;
+   const delta=Math.max(Math.abs(data[i]-bg[0]),Math.abs(data[i+1]-bg[1]),Math.abs(data[i+2]-bg[2]));
+   if(delta>=threshold){countsX[x]++;countsY[y]++;total++;}
+ }
+ // Un patrón de borde a borde o una imagen casi uniforme se conserva completa.
+ if(total<90||total>(S/2)*(S/2)*.88)
+   return {x:0,y:0,w:S,h:S,background,contentFound:false};
+ let minX=S,minY=S,maxX=0,maxY=0;
+ const minHits=Math.max(1,Math.round((S/2)*.012));
+ for(let x=0;x<S;x+=2)if(countsX[x]>=minHits){minX=Math.min(minX,x);maxX=Math.max(maxX,x+2);}
+ for(let y=0;y<S;y+=2)if(countsY[y]>=minHits){minY=Math.min(minY,y);maxY=Math.max(maxY,y+2);}
+ if(minX>=maxX||minY>=maxY)return {x:0,y:0,w:S,h:S,background,contentFound:false};
+ const pad=Math.max(5,Math.round(Math.max(maxX-minX,maxY-minY)*.035));
+ minX=Math.max(0,minX-pad);minY=Math.max(0,minY-pad);
+ maxX=Math.min(S,maxX+pad);maxY=Math.min(S,maxY+pad);
+ return {x:minX,y:minY,w:maxX-minX,h:maxY-minY,background,contentFound:true};
 }
-
-function colorDistance(r, g, b, bg) {
-  return Math.sqrt(
-    (r - bg.r) * (r - bg.r) +
-    (g - bg.g) * (g - bg.g) +
-    (b - bg.b) * (b - bg.b)
-  );
-}
-
-function detectContentBox(image) {
-  const ANALYSIS_SIZE = 512;
-  const canvas = document.createElement('canvas');
-  canvas.width = ANALYSIS_SIZE;
-  canvas.height = ANALYSIS_SIZE;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-
-  ctx.drawImage(image, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-
-  const bg = sampleCorners(ctx, ANALYSIS_SIZE, ANALYSIS_SIZE, 24);
-  const data = ctx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE).data;
-
-  let minX = ANALYSIS_SIZE;
-  let minY = ANALYSIS_SIZE;
-  let maxX = 0;
-  let maxY = 0;
-  let found = false;
-
-  const THRESHOLD = 38;
-
-  for (let y = 0; y < ANALYSIS_SIZE; y++) {
-    for (let x = 0; x < ANALYSIS_SIZE; x++) {
-      const i = (y * ANALYSIS_SIZE + x) * 4;
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const a = data[i + 3];
-
-      if (a < 10) continue;
-
-      const dist = colorDistance(r, g, b, bg);
-
-      if (dist > THRESHOLD) {
-        found = true;
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-
-  if (!found) {
-    return { x: 0, y: 0, w: ANALYSIS_SIZE, h: ANALYSIS_SIZE };
-  }
-
-  const pad = Math.round(Math.max(maxX - minX, maxY - minY) * 0.06);
-
-  minX = Math.max(0, minX - pad);
-  minY = Math.max(0, minY - pad);
-  maxX = Math.min(ANALYSIS_SIZE, maxX + pad);
-  maxY = Math.min(ANALYSIS_SIZE, maxY + pad);
-
-  return {
-    x: minX,
-    y: minY,
-    w: maxX - minX,
-    h: maxY - minY
-  };
-}
-function normalizeArtwork(image) {
-  const size = 1024;
-
-  const analysisBox = detectContentBox(image);
-
-  const scaleX = image.naturalWidth / 512;
-  const scaleY = image.naturalHeight / 512;
-
-  const sx = analysisBox.x * scaleX;
-  const sy = analysisBox.y * scaleY;
-  const sw = analysisBox.w * scaleX;
-  const sh = analysisBox.h * scaleY;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  // fondo blanco por defecto
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, size, size);
-
-  // el contenido útil debe ocupar aprox el 84% del área interna
-  const target = size * 0.84;
-  const fit = Math.min(target / sw, target / sh);
-
-  const dw = sw * fit;
-  const dh = sh * fit;
-  const dx = (size - dw) / 2;
-  const dy = (size - dh) / 2;
-
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh);
-
-  return canvas;
+function normalizeArtwork(image){
+ const size=1024,canvas=document.createElement('canvas');canvas.width=canvas.height=size;
+ const ctx=canvas.getContext('2d'),box=detectContentBox(image);
+ const w=image.naturalWidth||image.width,h=image.naturalHeight||image.height;
+ const sx=box.x*w/384,sy=box.y*h/384,sw=box.w*w/384,sh=box.h*h/384;
+ // Preserva el tono del fondo original; no introduce blanco alrededor de arte negro.
+ ctx.fillStyle=box.background;ctx.fillRect(0,0,size,size);
+ // 96% del área útil para maximizar el diseño sin recortar su silueta.
+ const fit=Math.min(size*.96/sw,size*.96/sh);
+ const dw=sw*fit,dh=sh*fit;
+ ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+ ctx.drawImage(image,sx,sy,sw,sh,(size-dw)/2,(size-dh)/2,dw,dh);
+ return canvas;
 }
 export async function composeMarker({imageBlob,sessionId}){
  if(!(imageBlob instanceof Blob))throw new Error('Primero cargá una imagen validada.');
