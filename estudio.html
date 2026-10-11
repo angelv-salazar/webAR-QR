@@ -455,7 +455,7 @@ markDirty();
 });
 }
 for(const id of ['entryName','entryPattern','posX','posY','posZ','modelSize','rotationY','animation'])$(id).addEventListener('input',changeFromControls);
-$('entryPattern').addEventListener('change',()=>void showPreview());
+$('entryPattern').addEventListener('change',()=>{void showMarkerResult(selectedEntry());void showPreview();});
 $('addEntry').onclick=()=>{
 if(session.entries.length>=20){inform('Para esta primera versión admitimos hasta 20 marcadores por recorrido.',true);return;}
 const e=newEntry(session.entries.length);
@@ -523,8 +523,9 @@ async function validateMarkerUpload(file,entry,replace=true){
  }else{entry.markerValidation=report;markDirty();}
  if(selectedEntry()?.id===entry.id){
    describeMarkerQuality(entry);
+   await showMarkerResult(entry);
    if(replace)await showPreview();
-   inform('Imagen admitida para preparar un patrón personalizado. Los avisos de contraste y simetría son orientativos; falta generar y comprobar su archivo .patt.');
+   inform('Imagen admitida. Ahora podés presionar «Generar marcador final» para incorporar el QR y crear el .patt.');
  }
  return true;
 }
